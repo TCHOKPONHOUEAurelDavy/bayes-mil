@@ -273,12 +273,12 @@ def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_f
 
         elif 'enc' in bayes_args :
             kl_model = bayes_args[0](model)
-            kl_data = kl_div[0]
+            kl_data = kl_div.mean()
             loss += bayes_args[1] * kl_model + bayes_args[2] * kl_data
         elif 'spvis' in bayes_args :
             kl_model = bayes_args[0](model)
             kl_div = kl_div.reshape(-1)
-            kl_data = kl_div[0]
+            kl_data = kl_div.mean()
             loss += bayes_args[1] * kl_model + bayes_args[2] * kl_data
             
         loss_value = loss.item()
