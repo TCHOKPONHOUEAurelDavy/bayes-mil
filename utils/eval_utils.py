@@ -14,14 +14,15 @@ from sklearn.metrics import roc_auc_score, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 import matplotlib.pyplot as plt
 
-def initiate_model(args, ckpt_path, dataset=None):
+def initiate_model(args, ckpt_path, dataset=None, feature_dim=None):
     print('Init Model')
     model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
 
-    if dataset is not None:
-        feature_dim = infer_bag_feature_dim(dataset)
-        if feature_dim is not None:
-            model_dict.update({'input_dim': feature_dim})
+    resolved_feature_dim = feature_dim
+    if resolved_feature_dim is None and dataset is not None:
+        resolved_feature_dim = infer_bag_feature_dim(dataset)
+    if resolved_feature_dim is not None:
+        model_dict.update({'input_dim': resolved_feature_dim})
     
 
     if args.model_type.startswith('bmil'):
