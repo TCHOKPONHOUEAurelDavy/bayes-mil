@@ -36,6 +36,13 @@ import pandas as pd
 from torchvision import datasets, transforms
 
 
+GROUP_MAPPING = {
+    "low_digit": {0, 1, 2, 3},
+    "mid_digit": {4, 5, 6},
+    "high_digit": {7, 8, 9},
+}
+
+
 @dataclass(frozen=True)
 class SlideExample:
     """Container for the metadata associated with one synthetic slide."""
@@ -121,17 +128,16 @@ def load_mnist_images(root: str) -> Tuple[np.ndarray, np.ndarray]:
 
 def sample_slide_contents(
     rng: random.Random,
-    num_instances: int,
+    digit_sequence: Sequence[int],
     image_pool: np.ndarray,
-    label_pool: np.ndarray,
+    digit_to_indices: Dict[int, Sequence[int]],
 ) -> Tuple[np.ndarray, List[int]]:
-    """Randomly sample ``num_instances`` MNIST digits from the pool."""
+    """Sample MNIST digits following ``digit_sequence``."""
 
-    indices = rng.choices(range(len(image_pool)), k=num_instances)
-    selected_images = image_pool[indices]
-    selected_labels = label_pool[indices].tolist()
-    features = selected_images.reshape(num_instances, -1)
-    return features, selected_labels
+    chosen_indices = [rng.choice(digit_to_indices[digit]) for digit in digit_sequence]
+    selected_images = image_pool[chosen_indices]
+    features = selected_images.reshape(len(digit_sequence), -1)
+    return features, list(digit_sequence)
 
 
 def make_grid_coords(num_instances: int, patch_size: int = 28) -> Tuple[np.ndarray, int, int]:
@@ -153,10 +159,9 @@ def determine_labels(digits: Sequence[int]) -> Tuple[str, str]:
 
     binary_label = "positive" if any(digit >= 5 for digit in digits) else "negative"
 
-    group_mapping = {"low_digit": {0, 1, 2, 3}, "mid_digit": {4, 5, 6}, "high_digit": {7, 8, 9}}
     counts = {
         group: sum(1 for digit in digits if digit in members)
-        for group, members in group_mapping.items()
+        for group, members in GROUP_MAPPING.items()
     }
     # Resolve ties deterministically by sorting on (count, group_name).
     ternary_label = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
@@ -165,6 +170,126 @@ def determine_labels(digits: Sequence[int]) -> Tuple[str, str]:
 
 def ensure_directory(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def majority_count(num_instances: int) -> int:
+    """Return the minimal count required to secure a strict majority."""
+
+    return max(1, num_instances // 2 + 1)
+
+
+def generate_digit_sequence(
+    rng: random.Random,
+    bag_size: int,
+    binary_label: str,
+    ternary_label: str,
+) -> Sequence[int]:
+    """Create a digit sequence that realizes the requested labels."""
+
+    if binary_label not in {"positive", "negative"}:
+        raise ValueError(f"Unknown binary label: {binary_label}")
+    if ternary_label not in GROUP_MAPPING:
+        raise ValueError(f"Unknown ternary label: {ternary_label}")
+
+    if binary_label == "negative" and ternary_label == "high_digit":
+        raise ValueError("Cannot construct a negative slide with a high_digit majority.")
+
+    digits: List[int] = []
+
+    if binary_label == "negative":
+        if ternary_label == "low_digit":
+            digits = [rng.choice(tuple(GROUP_MAPPING["low_digit"])) for _ in range(bag_size)]
+        else:  # ternary_label == "mid_digit"
+            # Ensure a strict majority of "4" digits while allowing some lower digits.
+            majority = majority_count(bag_size)
+            digits = [4] * majority
+            remaining = bag_size - majority
+            pool = tuple(GROUP_MAPPING["low_digit"])
+            digits.extend(rng.choice(pool) for _ in range(remaining))
+            rng.shuffle(digits)
+    else:  # binary positive
+        if ternary_label == "low_digit":
+            if bag_size == 1:
+                raise ValueError(
+                    "Cannot synthesize a positive slide with a single low_digit instance."
+                )
+            low_pool = tuple(GROUP_MAPPING["low_digit"])
+            digits = [rng.choice(low_pool) for _ in range(bag_size)]
+            # Inject a high-digit instance to flip the binary label while preserving majority.
+            digits[-1] = rng.choice(tuple(GROUP_MAPPING["high_digit"]))
+            rng.shuffle(digits)
+        elif ternary_label == "mid_digit":
+            mid_pool = tuple(GROUP_MAPPING["mid_digit"])
+            digits = [rng.choice(mid_pool) for _ in range(majority_count(bag_size))]
+            if not any(digit >= 5 for digit in digits):
+                digits[0] = rng.choice((5, 6))
+            remaining = bag_size - len(digits)
+            filler_pool = tuple(set(range(10)) - GROUP_MAPPING["mid_digit"])
+            digits.extend(rng.choice(filler_pool) for _ in range(remaining))
+            rng.shuffle(digits)
+        else:  # ternary_label == "high_digit"
+            high_pool = tuple(GROUP_MAPPING["high_digit"])
+            digits = [rng.choice(high_pool) for _ in range(majority_count(bag_size))]
+            remaining = bag_size - len(digits)
+            filler_pool = tuple(range(10))
+            digits.extend(rng.choice(filler_pool) for _ in range(remaining))
+            rng.shuffle(digits)
+
+    if len(digits) != bag_size:
+        raise ValueError("Digit synthesis failed to match the requested bag size.")
+
+    derived_binary, derived_ternary = determine_labels(digits)
+    if derived_binary != binary_label or derived_ternary != ternary_label:
+        raise ValueError(
+            "Generated digits do not satisfy requested labels: "
+            f"wanted ({binary_label}, {ternary_label}) but obtained "
+            f"({derived_binary}, {derived_ternary})."
+        )
+
+    return digits
+
+
+def plan_label_allocation(num_slides: int, rng: random.Random) -> List[Tuple[str, str]]:
+    """Return a balanced list of (binary_label, ternary_label) assignments."""
+
+    ternary_base = num_slides // 3
+    ternary_counts = {
+        "low_digit": ternary_base,
+        "mid_digit": ternary_base,
+        "high_digit": ternary_base,
+    }
+    for idx, label in enumerate(("low_digit", "mid_digit", "high_digit")[: num_slides % 3]):
+        ternary_counts[label] += 1
+
+    positive_target = math.ceil(num_slides / 2)
+    negative_target = num_slides - positive_target
+
+    plans: List[Tuple[str, str]] = []
+
+    # High-digit slides must be positive.
+    for _ in range(ternary_counts["high_digit"]):
+        plans.append(("positive", "high_digit"))
+        positive_target -= 1
+
+    remaining_labels = (
+        ["low_digit"] * ternary_counts["low_digit"]
+        + ["mid_digit"] * ternary_counts["mid_digit"]
+    )
+
+    for label in remaining_labels:
+        if negative_target > 0:
+            plans.append(("negative", label))
+            negative_target -= 1
+        else:
+            plans.append(("positive", label))
+            positive_target -= 1
+
+    if positive_target != 0 or negative_target != 0:
+        raise ValueError("Failed to allocate label plan with the requested balance.")
+
+    rng.shuffle(plans)
+
+    return plans
 
 
 def write_h5(features: np.ndarray, coords: np.ndarray, destination: str) -> None:
@@ -291,18 +416,39 @@ def main() -> None:
         os.remove(shape_file)
 
     images, labels = load_mnist_images(args.mnist_root)
+    digit_to_indices = {
+        digit: np.flatnonzero(labels == digit).tolist()
+        for digit in range(10)
+    }
 
     rng = random.Random(args.seed)
     examples: List[SlideExample] = []
 
-    for slide_index in range(args.num_slides):
-        bag_size = rng.randint(args.min_patches, args.max_patches)
-        features, digit_labels = sample_slide_contents(rng, bag_size, images, labels)
-        coords, width, height = make_grid_coords(bag_size)
+    label_plan = plan_label_allocation(args.num_slides, rng)
+
+    for slide_index, (binary_label, ternary_label) in enumerate(label_plan):
+        for _ in range(128):
+            bag_size = rng.randint(args.min_patches, args.max_patches)
+            try:
+                digit_sequence = generate_digit_sequence(
+                    rng, bag_size, binary_label, ternary_label
+                )
+            except ValueError:
+                continue
+
+            features, digit_labels = sample_slide_contents(
+                rng, digit_sequence, images, digit_to_indices
+            )
+            coords, width, height = make_grid_coords(len(digit_labels))
+            break
+        else:
+            raise RuntimeError(
+                "Failed to synthesize a slide matching the requested label combination. "
+                "Consider relaxing the patch-count bounds."
+            )
 
         slide_id = f"slide_{slide_index:04d}"
         case_id = f"case_{slide_index // args.slides_per_case:04d}"
-        binary_label, ternary_label = determine_labels(digit_labels)
 
         write_h5(features, coords, os.path.join(h5_root, f"{slide_id}.h5"))
         save_shape_entry(shape_file, slide_id, width, height)

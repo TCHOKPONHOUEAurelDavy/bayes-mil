@@ -49,8 +49,11 @@ python processing_scripts/create_mnist_synthetic_dataset.py \
 ```
 
 The command writes the expected `h5_files/`, metadata CSV files, and cross-validation
-splits. Refer to [docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md)
-for additional options and example training commands.
+splits. The generator also balances the binary (`positive`/`negative`) and ternary
+(`low_digit`/`mid_digit`/`high_digit`) labels whenever possible so that each class is
+present in the resulting metadata. Refer to
+[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
+and example training commands.
 
 ## Training
 1. Modify the format of the input data.
