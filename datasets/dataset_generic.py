@@ -323,7 +323,19 @@ class Generic_MIL_Dataset(Generic_WSI_Classification_Dataset):
 		self.data_dir = data_dir
 		self.use_h5 = False
 
-		shape_file = 'images_shape.txt'
+		shape_candidates = []
+		if isinstance(self.data_dir, str):
+			shape_candidates.append(os.path.join(self.data_dir, 'images_shape.txt'))
+		elif isinstance(self.data_dir, dict):
+			shape_candidates.extend(
+				[os.path.join(path, 'images_shape.txt') for path in self.data_dir.values() if isinstance(path, str)]
+			)
+		shape_candidates.append('images_shape.txt')
+
+		shape_file = next((path for path in shape_candidates if path and os.path.isfile(path)), None)
+		if shape_file is None:
+			raise FileNotFoundError('Unable to locate images_shape.txt. Checked: {}'.format(shape_candidates))
+
 		self.shape_dict = self.read_shapes(shape_file)
 
 	def load_from_h5(self, toggle):
