@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 N_SAMPLES = 16
 
 
-def _infer_bag_feature_dim(split):
+def infer_bag_feature_dim(split):
     cached = getattr(split, '_cached_feature_dim', None)
     if cached is not None:
         return cached
@@ -204,7 +204,7 @@ def train(datasets, cur, args):
 
     print('\nInit Model...', end=' ')
     model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
-    feature_dim = _infer_bag_feature_dim(train_split)
+    feature_dim = infer_bag_feature_dim(train_split)
     if feature_dim is not None:
         model_dict.update({'input_dim': feature_dim})
     if args.model_type == 'clam' and args.subtyping:
