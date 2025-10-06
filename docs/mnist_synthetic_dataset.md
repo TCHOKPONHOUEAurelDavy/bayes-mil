@@ -48,7 +48,23 @@ Swap `--task` to `mnist_ternary` to evaluate the three-class task. The script
 reads the splits generated earlier (unless `--split_dir` overrides the path) and
 loads features from `h5_files/`.
 
-## 3. Troubleshooting
+## 3. Visualize a synthetic slide
+
+You can quickly inspect the generated bags with the helper below. It rebuilds
+the MNIST grid stored in `h5_files/<slide>.h5` and saves a PNG preview that
+annotates the slide-level labels.
+
+```bash
+python vis_utils/visualize_mnist_slide.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --slide-id slide_0005 \
+    --output preview.png
+```
+
+If `--output` is omitted the script drops images under
+`<dataset-root>/visualizations/`.
+
+## 4. Troubleshooting
 
 - Ensure that `torchvision` is installed in the active environment so the script
   can download MNIST.
