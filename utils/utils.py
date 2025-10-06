@@ -68,7 +68,13 @@ def get_split_loader(split_dataset, training = False, testing = False, weighted 
 			loader = DataLoader(split_dataset, batch_size=1, sampler = SequentialSampler(split_dataset), collate_fn = collate_MIL, **kwargs)
 	
 	else:
-		ids = np.random.choice(np.arange(len(split_dataset), int(len(split_dataset)*0.1)), replace = False)
+		dataset_size = len(split_dataset)
+		if dataset_size == 0:
+			ids = np.array([], dtype=int)
+		else:
+			sample_size = max(1, int(math.ceil(dataset_size * 0.1)))
+			sample_size = min(sample_size, dataset_size)
+			ids = np.random.choice(np.arange(dataset_size), sample_size, replace=False)
 		loader = DataLoader(split_dataset, batch_size=1, sampler = SubsetSequentialSampler(ids), collate_fn = collate_MIL, **kwargs )
 
 	return loader
