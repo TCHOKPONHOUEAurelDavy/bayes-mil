@@ -106,6 +106,51 @@ def infer_bag_feature_dim(split):
     setattr(split, '_cached_feature_dim', feature_dim)
     return feature_dim
 
+
+def infer_bag_feature_dim(split):
+    cached = getattr(split, '_cached_feature_dim', None)
+    if cached is not None:
+        return cached
+
+    slide_data = getattr(split, 'slide_data', None)
+    data_dir = getattr(split, 'data_dir', None)
+    if slide_data is None or data_dir is None or len(slide_data) == 0:
+        return None
+
+    try:
+        slide_row = slide_data.iloc[0]
+        slide_id = slide_row['slide_id']
+    except (AttributeError, KeyError, IndexError):
+        return None
+
+    if isinstance(data_dir, dict):
+        source = slide_row.get('source')
+        if source is None:
+            return None
+        data_dir = data_dir.get(source)
+        if data_dir is None:
+            return None
+
+    h5_path = os.path.join(data_dir, 'h5_files', f'{slide_id}.h5')
+    if not os.path.isfile(h5_path):
+        return None
+
+    try:
+        with h5py.File(h5_path, 'r') as handle:
+            features = handle['features']
+            shape = features.shape
+    except (OSError, KeyError):
+        return None
+
+    feature_dim = None
+    if len(shape) == 1:
+        feature_dim = int(shape[0])
+    elif len(shape) >= 2:
+        feature_dim = int(shape[-1])
+
+    setattr(split, '_cached_feature_dim', feature_dim)
+    return feature_dim
+
 import torch.nn as nn
 class ECELoss(nn.Module):
     def __init__(self, n_bins=15):
