@@ -38,6 +38,20 @@ Create a `images_shape.txt` file that stored with slide name, width and height o
 python get_image_shape.py
 ```
 
+### Synthetic MNIST dataset for experimentation
+
+To quickly validate the Bayes-MIL models without preparing whole-slide images,
+generate a toy dataset derived from MNIST:
+
+```bash
+python processing_scripts/create_mnist_synthetic_dataset.py \
+    --output-dir /path/to/mnist_mil_dataset
+```
+
+The command writes the expected `h5_files/`, metadata CSV files, and cross-validation
+splits. Refer to [docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md)
+for additional options and example training commands.
+
 ## Training
 1. Modify the format of the input data.
 

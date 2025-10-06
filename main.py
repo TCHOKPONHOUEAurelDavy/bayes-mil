@@ -116,7 +116,7 @@ parser.add_argument('--model_type', type=str, choices=['clam_sb', 'clam_mb', 'mi
 parser.add_argument('--exp_code', type=str, help='experiment code for saving results')
 parser.add_argument('--weighted_sample', action='store_true', default=False, help='enable weighted sampling')
 parser.add_argument('--model_size', type=str, choices=['small', 'big'], default='small', help='size of model, does not affect mil')
-parser.add_argument('--task', type=str, choices=['task_1_tumor_vs_normal',  'task_2_tumor_subtyping'])
+parser.add_argument('--task', type=str, choices=['task_1_tumor_vs_normal',  'task_2_tumor_subtyping', 'mnist_binary', 'mnist_ternary'])
 ### CLAM specific options
 parser.add_argument('--no_inst_cluster', action='store_true', default=False,
                      help='disable instance-level clustering')
@@ -193,6 +193,38 @@ elif args.task == 'task_2_tumor_subtyping':
     if args.model_type in ['clam_sb', 'clam_mb']:
         assert args.subtyping
 
+elif args.task == 'mnist_binary':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_binary requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 2
+    csv_path = os.path.join(args.data_root_dir, 'mnist_binary.csv')
+    dataset = Generic_MIL_Dataset(csv_path=csv_path,
+                            data_dir=os.path.join(args.data_root_dir, ''),
+                            shuffle=False,
+                            seed=args.seed,
+                            print_info=True,
+                            label_dict={'negative': 0, 'positive': 1},
+                            patient_strat=False,
+                            ignore=[])
+    if 'convis' in args.model_type or 'spvis' in args.model_type:
+        dataset.load_from_h5(True)
+
+elif args.task == 'mnist_ternary':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_ternary requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 3
+    csv_path = os.path.join(args.data_root_dir, 'mnist_ternary.csv')
+    dataset = Generic_MIL_Dataset(csv_path=csv_path,
+                            data_dir=os.path.join(args.data_root_dir, ''),
+                            shuffle=False,
+                            seed=args.seed,
+                            print_info=True,
+                            label_dict={'low_digit': 0, 'mid_digit': 1, 'high_digit': 2},
+                            patient_strat=False,
+                            ignore=[])
+    if 'convis' in args.model_type or 'spvis' in args.model_type:
+        dataset.load_from_h5(True)
+
 else:
     raise NotImplementedError
 
@@ -204,9 +236,17 @@ if not os.path.isdir(args.results_dir):
     os.mkdir(args.results_dir)
 
 if args.split_dir is None:
-    args.split_dir = os.path.join('splits', args.task+'_{}'.format(int(args.label_frac*100)))
+    if args.task in ['mnist_binary', 'mnist_ternary']:
+        args.split_dir = os.path.join(args.data_root_dir, 'splits', args.task)
+    else:
+        args.split_dir = os.path.join('splits', args.task+'_{}'.format(int(args.label_frac*100)))
 else:
-    args.split_dir = os.path.join('splits', args.split_dir)
+    if os.path.isabs(args.split_dir):
+        args.split_dir = args.split_dir
+    elif args.task in ['mnist_binary', 'mnist_ternary']:
+        args.split_dir = os.path.join(args.data_root_dir, args.split_dir)
+    else:
+        args.split_dir = os.path.join('splits', args.split_dir)
 
 print('split_dir: ', args.split_dir)
 assert os.path.isdir(args.split_dir)
