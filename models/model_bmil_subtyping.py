@@ -169,11 +169,14 @@ class GaussianSmoothing(nn.Module):
         return self.conv(input, weight=self.weight, groups=self.groups)
 
 class probabilistic_MIL_Bayes_vis(nn.Module):
-    def __init__(self, gate = True, size_arg = "small", dropout = False, n_classes=2, top_k=1):
+    def __init__(self, gate = True, size_arg = "small", dropout = False, n_classes=2, top_k=1, input_dim=None):
         super(probabilistic_MIL_Bayes_vis, self).__init__()
         self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
-        size = self.size_dict[size_arg]
-        fc = [nn.Linear(size[0], size[1]), nn.ReLU()]
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+        fc = [nn.Linear(self.input_dim, size[1]), nn.ReLU()]
         if dropout:
             fc.append(nn.Dropout(0.25))
         if gate:
@@ -233,11 +236,14 @@ class probabilistic_MIL_Bayes_vis(nn.Module):
         return top_instance, Y_prob, Y_hat, y_probs, A
 
 class probabilistic_MIL_Bayes_enc(nn.Module):
-    def __init__(self, gate = True, size_arg = "small", dropout = False, n_classes=2, top_k=1):
+    def __init__(self, gate = True, size_arg = "small", dropout = False, n_classes=2, top_k=1, input_dim=None):
         super(probabilistic_MIL_Bayes_enc, self).__init__()
         self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
-        size = self.size_dict[size_arg]
-        first_transform = nn.Linear(size[0], size[1])
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+        first_transform = nn.Linear(self.input_dim, size[1])
         fc1 = [first_transform, nn.ReLU()]
 
         if dropout:
@@ -324,15 +330,18 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
 PATCH_SIZE = 256
 
 class probabilistic_MIL_Bayes_spvis(nn.Module):
-    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
         super(probabilistic_MIL_Bayes_spvis, self).__init__()
 
         # self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
         self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
-        size = self.size_dict[size_arg]
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
 
         ard_init = -4.
-        self.linear1 = nn.Linear(size[0], size[1])
+        self.linear1 = nn.Linear(self.input_dim, size[1])
         self.linear2a = LinearVDO(size[1], size[2], ard_init=ard_init)
         self.linear2b = LinearVDO(size[1], size[2], ard_init=ard_init)
         self.linear3 = LinearVDO(size[2], 2, ard_init=ard_init)
