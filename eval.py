@@ -41,7 +41,16 @@ parser.add_argument('--fold', type=int, default=-1, help='single fold to evaluat
 parser.add_argument('--micro_average', action='store_true', default=False, 
                     help='use micro_average instead of macro_avearge for multiclass AUC')
 parser.add_argument('--split', type=str, choices=['train', 'val', 'test', 'all'], default='test')
-parser.add_argument('--task', type=str, choices=['task_1_tumor_vs_normal',  'task_2_tumor_subtyping'])
+parser.add_argument(
+    '--task',
+    type=str,
+    choices=[
+        'task_1_tumor_vs_normal',
+        'task_2_tumor_subtyping',
+        'mnist_binary',
+        'mnist_ternary',
+    ],
+)
 args = parser.parse_args()
 
 device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -52,7 +61,12 @@ args.models_dir = os.path.join(args.results_dir, str(args.models_exp_code))
 os.makedirs(args.save_dir, exist_ok=True)
 
 if args.splits_dir is None:
-    args.splits_dir = args.models_dir
+    if args.task in ['mnist_binary', 'mnist_ternary']:
+        if args.data_root_dir is None:
+            raise ValueError('MNIST evaluation requires --data_root_dir pointing to the dataset root')
+        args.splits_dir = os.path.join(args.data_root_dir, 'splits', args.task)
+    else:
+        args.splits_dir = args.models_dir
 
 assert os.path.isdir(args.models_dir)
 assert os.path.isdir(args.splits_dir)
@@ -84,11 +98,41 @@ elif args.task == 'task_2_tumor_subtyping':
     args.n_classes=3
     dataset = Generic_MIL_Dataset(csv_path = 'dataset_csv/tumor_subtyping_dummy_clean.csv',
                             data_dir= os.path.join(args.data_root_dir, 'tumor_subtyping_resnet_features'),
-                            shuffle = False, 
+                            shuffle = False,
                             print_info = True,
                             label_dict = {'subtype_1':0, 'subtype_2':1, 'subtype_3':2},
                             patient_strat= False,
                             ignore=[])
+
+elif args.task == 'mnist_binary':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_binary requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 2
+    csv_path = os.path.join(args.data_root_dir, 'mnist_binary.csv')
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        print_info=True,
+        label_dict={'negative': 0, 'positive': 1},
+        patient_strat=False,
+        ignore=[],
+    )
+
+elif args.task == 'mnist_ternary':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_ternary requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 3
+    csv_path = os.path.join(args.data_root_dir, 'mnist_ternary.csv')
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        print_info=True,
+        label_dict={'low_digit': 0, 'mid_digit': 1, 'high_digit': 2},
+        patient_strat=False,
+        ignore=[],
+    )
 
 else:
     raise NotImplementedError
