@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-from vis_utils.mnist_attention_heatmap import MNISTHeatmapRenderer, load_split_slides, resolve_descriptor
+# Ensure the repository root (which contains the ``vis_utils`` package) is on the path.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from vis_utils.mnist_attention_heatmap import (  # noqa: E402
+    MNISTHeatmapRenderer,
+    load_split_slides,
+    resolve_descriptor,
+)
 
 
 def parse_args() -> argparse.Namespace:

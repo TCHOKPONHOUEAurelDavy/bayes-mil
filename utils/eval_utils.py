@@ -9,14 +9,20 @@ from models.model_bmil import bMIL_model_dict
 from models.model_bmil import get_ard_reg_vdo
 import pandas as pd
 from utils.utils import *
-from utils.core_utils import Accuracy_Logger
+from utils.core_utils import Accuracy_Logger, infer_bag_feature_dim
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 from sklearn.preprocessing import label_binarize
 import matplotlib.pyplot as plt
 
-def initiate_model(args, ckpt_path):
-    print('Init Model')    
+def initiate_model(args, ckpt_path, dataset=None, feature_dim=None):
+    print('Init Model')
     model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
+
+    resolved_feature_dim = feature_dim
+    if resolved_feature_dim is None and dataset is not None:
+        resolved_feature_dim = infer_bag_feature_dim(dataset)
+    if resolved_feature_dim is not None:
+        model_dict.update({'input_dim': resolved_feature_dim})
     
 
     if args.model_type.startswith('bmil'):
@@ -46,7 +52,7 @@ def initiate_model(args, ckpt_path):
         return model
 
 def eval(dataset, args, ckpt_path):
-    model, bayes_args = initiate_model(args, ckpt_path)
+    model, bayes_args = initiate_model(args, ckpt_path, dataset)
 
     print('Init Loaders')
     loader = get_simple_loader(dataset)

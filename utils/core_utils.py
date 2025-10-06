@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from utils.utils import *
 import os
+import h5py
 from datasets.dataset_generic import save_splits
 
 from models.model_bmil import bMIL_model_dict
@@ -14,6 +15,51 @@ from sklearn.metrics import auc as calc_auc
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 N_SAMPLES = 16
+
+
+def infer_bag_feature_dim(split):
+    cached = getattr(split, '_cached_feature_dim', None)
+    if cached is not None:
+        return cached
+
+    slide_data = getattr(split, 'slide_data', None)
+    data_dir = getattr(split, 'data_dir', None)
+    if slide_data is None or data_dir is None or len(slide_data) == 0:
+        return None
+
+    try:
+        slide_row = slide_data.iloc[0]
+        slide_id = slide_row['slide_id']
+    except (AttributeError, KeyError, IndexError):
+        return None
+
+    if isinstance(data_dir, dict):
+        source = slide_row.get('source')
+        if source is None:
+            return None
+        data_dir = data_dir.get(source)
+        if data_dir is None:
+            return None
+
+    h5_path = os.path.join(data_dir, 'h5_files', f'{slide_id}.h5')
+    if not os.path.isfile(h5_path):
+        return None
+
+    try:
+        with h5py.File(h5_path, 'r') as handle:
+            features = handle['features']
+            shape = features.shape
+    except (OSError, KeyError):
+        return None
+
+    feature_dim = None
+    if len(shape) == 1:
+        feature_dim = int(shape[0])
+    elif len(shape) >= 2:
+        feature_dim = int(shape[-1])
+
+    setattr(split, '_cached_feature_dim', feature_dim)
+    return feature_dim
 
 import torch.nn as nn
 class ECELoss(nn.Module):
@@ -158,6 +204,9 @@ def train(datasets, cur, args):
 
     print('\nInit Model...', end=' ')
     model_dict = {"dropout": args.drop_out, 'n_classes': args.n_classes}
+    feature_dim = infer_bag_feature_dim(train_split)
+    if feature_dim is not None:
+        model_dict.update({'input_dim': feature_dim})
     if args.model_type == 'clam' and args.subtyping:
         model_dict.update({'subtyping': True})
     

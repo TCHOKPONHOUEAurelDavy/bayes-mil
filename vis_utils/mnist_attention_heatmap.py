@@ -219,7 +219,11 @@ class MNISTHeatmapRenderer:
             model_size=model_size,
         )
 
-        self.model, _ = initiate_model(init_args, str(self.checkpoint))
+        self.model, _ = initiate_model(
+            init_args,
+            str(self.checkpoint),
+            feature_dim=PATCH_PIXELS * PATCH_PIXELS,
+        )
         self.model.eval()
 
     def render_slide(
