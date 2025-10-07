@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -234,6 +234,112 @@ def write_h5(features: np.ndarray, coords: np.ndarray, destination: str) -> None
 def save_shape_entry(shape_file: str, slide_id: str, width: int, height: int) -> None:
     with open(shape_file, "a", encoding="utf-8") as handle:
         handle.write(f"{slide_id},{width},{height}\n")
+
+
+def compute_class_counts(
+    slides: Sequence[Mapping[str, Any]], selected_tasks: Sequence[str]
+) -> Dict[str, Dict[str, int]]:
+    counts: Dict[str, Dict[str, int]] = {
+        task: {label: 0 for label in TASK_LABEL_MAPS[task].values()}
+        for task in selected_tasks
+    }
+    for slide in slides:
+        numbers_tensor = torch.tensor(slide["numbers"], dtype=torch.long)
+        for task in selected_tasks:
+            bundle = TASK_METADATA_FNS[task](numbers_tensor)
+            label_map = TASK_LABEL_MAPS[task]
+            label = label_map.get(bundle.target)
+            if label is None:
+                raise KeyError(
+                    f"Task {task} does not provide a label mapping for target {bundle.target}."
+                )
+            counts[task][label] += 1
+    return counts
+
+
+def find_missing_labels(
+    class_counts: Mapping[str, Mapping[str, int]]
+) -> Dict[str, List[str]]:
+    missing: Dict[str, List[str]] = {}
+    for task_name, labels in class_counts.items():
+        absent = [label for label, count in labels.items() if count == 0]
+        if absent:
+            missing[task_name] = absent
+    return missing
+
+
+def _choose_bag_size(
+    rng: random.Random, min_patches: int, max_patches: int, min_required: int
+) -> int:
+    lower = max(min_patches, min_required)
+    upper = max(max_patches, lower)
+    return rng.randint(lower, upper)
+
+
+def targeted_digit_sequence(
+    task_name: str,
+    label: str,
+    min_patches: int,
+    max_patches: int,
+    rng: random.Random,
+) -> List[int]:
+    if task_name == "mnist_fourbags":
+        if label == "none":
+            base = [rng.choice([d for d in range(10) if d not in {8, 9}])]
+            filler = [d for d in range(10) if d not in {8, 9}]
+        elif label == "mostly_eight":
+            base = [8]
+            filler = [d for d in range(10) if d != 9]
+        elif label == "mostly_nine":
+            base = [9]
+            filler = [d for d in range(10) if d != 8]
+        elif label == "both":
+            base = [8, 9]
+            filler = list(range(10))
+        else:
+            raise ValueError(f"Unknown label {label} for task {task_name}.")
+    elif task_name == "mnist_even_odd":
+        if label == "odd_majority":
+            base = [1]
+            filler = [1, 3, 5, 7, 9]
+        elif label == "even_majority":
+            base = [2]
+            filler = [0, 2, 4, 6, 8]
+        else:
+            raise ValueError(f"Unknown label {label} for task {task_name}.")
+    elif task_name == "mnist_adjacent_pairs":
+        if label == "has_adjacent_pairs":
+            base = [0, 1]
+            filler = [0, 1, 5, 6, 7, 8, 9]
+        elif label == "no_adjacent_pairs":
+            base = [0]
+            filler = [0, 5, 6, 7, 8, 9]
+        else:
+            raise ValueError(f"Unknown label {label} for task {task_name}.")
+    elif task_name == "mnist_fourbags_plus":
+        if label == "none":
+            base = [0]
+            filler = [0, 2, 4, 6, 8, 9]
+        elif label == "three_five":
+            base = [3, 5]
+            filler = [0, 2, 4, 6, 8, 9, 3, 5]
+        elif label == "one_only":
+            base = [1]
+            filler = [0, 1, 2, 4, 6, 8, 9]
+        elif label == "one_and_seven":
+            base = [1, 7]
+            filler = [0, 1, 2, 4, 6, 7, 8, 9]
+        else:
+            raise ValueError(f"Unknown label {label} for task {task_name}.")
+    else:
+        raise ValueError(f"Unknown task {task_name}.")
+
+    bag_size = _choose_bag_size(rng, min_patches, max_patches, len(base))
+    digits = list(base)
+    while len(digits) < bag_size:
+        digits.append(rng.choice(filler))
+    rng.shuffle(digits)
+    return digits
 
 
 def stratified_kfold(
@@ -471,51 +577,69 @@ def main() -> None:
         # ``choices`` already ensures validity; keep ordering deterministic.
         selected_tasks = list(dict.fromkeys(args.tasks))
 
-    attempt = 0
+    rng = random.Random(args.seed)
     slides: List[Dict[str, Any]] = []
-    class_counts: Dict[str, Dict[str, int]] = {}
-    while attempt < 32:
-        rng = random.Random(args.seed + attempt)
-        slides = []
-        class_counts = {
-            task: {label: 0 for label in TASK_LABEL_MAPS[task].values()}
-            for task in selected_tasks
-        }
-        for _ in range(args.num_slides):
-            bag_size = rng.randint(args.min_patches, args.max_patches)
-            digit_sequence = [rng.randrange(10) for _ in range(bag_size)]
-            features, digit_labels = sample_slide_contents(
-                rng, digit_sequence, images, digit_to_indices
-            )
-            coords, width, height = make_grid_coords(len(digit_labels))
-            numbers_tensor = torch.tensor(digit_labels, dtype=torch.long)
-            for task_name in selected_tasks:
+    for _ in range(args.num_slides):
+        bag_size = rng.randint(args.min_patches, args.max_patches)
+        digit_sequence = [rng.randrange(10) for _ in range(bag_size)]
+        features, digit_labels = sample_slide_contents(
+            rng, digit_sequence, images, digit_to_indices
+        )
+        coords, width, height = make_grid_coords(len(digit_labels))
+        slides.append(
+            {
+                "features": features,
+                "coords": coords,
+                "width": width,
+                "height": height,
+                "numbers": digit_labels,
+            }
+        )
+
+    class_counts = compute_class_counts(slides, selected_tasks)
+    missing = find_missing_labels(class_counts)
+    extra_slides = 0
+    while missing:
+        for task_name, missing_labels in missing.items():
+            for label in missing_labels:
+                digit_sequence = targeted_digit_sequence(
+                    task_name,
+                    label,
+                    args.min_patches,
+                    args.max_patches,
+                    rng,
+                )
+                features, digit_labels = sample_slide_contents(
+                    rng, digit_sequence, images, digit_to_indices
+                )
+                coords, width, height = make_grid_coords(len(digit_labels))
+                numbers_tensor = torch.tensor(digit_labels, dtype=torch.long)
                 bundle = TASK_METADATA_FNS[task_name](numbers_tensor)
-                label_map = TASK_LABEL_MAPS[task_name]
-                label = label_map.get(bundle.target)
-                if label is None:
-                    raise KeyError(
-                        f"Task {task_name} does not provide a label mapping for target {bundle.target}."
+                observed_label = TASK_LABEL_MAPS[task_name][bundle.target]
+                if observed_label != label:
+                    raise RuntimeError(
+                        "Targeted synthesis produced label "
+                        f"{observed_label} for task {task_name} instead of expected {label}."
                     )
-                class_counts[task_name][label] += 1
+                slides.append(
+                    {
+                        "features": features,
+                        "coords": coords,
+                        "width": width,
+                        "height": height,
+                        "numbers": digit_labels,
+                    }
+                )
+                extra_slides += 1
 
-            slides.append(
-                {
-                    "features": features,
-                    "coords": coords,
-                    "width": width,
-                    "height": height,
-                    "numbers": digit_labels,
-                }
-            )
+        class_counts = compute_class_counts(slides, selected_tasks)
+        missing = find_missing_labels(class_counts)
 
-        if all(all(count > 0 for count in counts.values()) for counts in class_counts.values()):
-            break
-        attempt += 1
-    else:
-        raise RuntimeError(
-            "Failed to synthesise a dataset containing all classes for every task. "
-            "Consider increasing --num-slides or widening the patch-count range."
+    if extra_slides:
+        print(
+            "Added"
+            f" {extra_slides} extra slide{'s' if extra_slides != 1 else ''}"
+            " to ensure every selected task observed all classes."
         )
 
     slides_with_ids: List[Dict[str, Any]] = []

@@ -33,8 +33,9 @@ The directory will contain:
   for interpretability analyses.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
 - `splits/<task>/`: cross-validation CSV files for every task.
-- The generator enforces that each class for every task is represented (when the
-  requested number of slides allows for it), avoiding degenerate datasets lacking a class.
+- The generator ensures that every selected task observes each class at least
+  once, adding a handful of extra slides beyond `--num-slides` when necessary so
+  that stratified training and evaluation remain well defined.
 
 ## 2. Run the Bayes-MIL pipeline step by step
 
