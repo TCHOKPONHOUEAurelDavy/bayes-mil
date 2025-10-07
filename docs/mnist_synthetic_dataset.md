@@ -7,7 +7,9 @@ running fast experiments without relying on whole-slide images.
 ## 1. Create the dataset
 
 Run the helper script and provide the output directory that will host the
-artifacts. The script downloads MNIST through `torchvision` on first use.
+artifacts. The script downloads MNIST through `torchvision` on first use and
+instantiates the original dataset class that matches the task you request, so
+each dataset is generated independently.
 
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
@@ -17,8 +19,10 @@ python processing_scripts/create_mnist_synthetic_dataset.py \
 
 Key options:
 
-- `--dataset`: which task-specific dataset to generate. Run the script again with a
-  different name to create the other variants independently.
+- `--dataset`: which task-specific dataset to generate. Valid values mirror the
+  class names in `processing_scripts/mnist_number_datasets.py`: `mnist_fourbags`,
+  `mnist_even_odd`, `mnist_adjacent_pairs`, and `mnist_fourbags_plus`. Run the
+  script again with a different value to build the remaining datasets one by one.
 - `--num-bags`: total number of synthetic “slides” (bags) to create.
 - `--bag-size`: number of MNIST digits placed inside each slide.
 - `--noise`: amount of Gaussian noise added to the raw pixel features.
@@ -98,7 +102,26 @@ helpers with the matching `--task` flag so that the checkpoint and split
 metadata agree on the number of classes. The heatmap export utility validates
 this and raises a clear error if a mismatch is detected.
 
-## 3. Troubleshooting
+## 3. Visualise a single synthetic slide
+
+To inspect the raw digits and confirm the assigned label for any slide, call the
+visualisation helper with the dataset root, the slide identifier, and the task
+whose label you wish to display:
+
+```bash
+python vis_utils/visualize_mnist_slide.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --slide-id slide_0005 \
+    --task mnist_fourbags \
+    --output preview.png
+```
+
+If you omit `--output`, the PNG is written to
+`<dataset-root>/visualizations/<slide-id>.png`. Leaving out `--task` produces a
+title that lists every generated dataset; providing it restricts the caption to
+the requested task, which is useful when validating one dataset at a time.
+
+## 4. Troubleshooting
 
 - Ensure that `torchvision` is installed in the active environment so the script
   can download MNIST.
