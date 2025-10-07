@@ -32,8 +32,10 @@ from vis_utils.visualize_mnist_slide import (
 
 
 LABEL_DICTS: Dict[str, Dict[str, int]] = {
-    'mnist_binary': {'negative': 0, 'positive': 1},
-    'mnist_ternary': {'low_digit': 0, 'mid_digit': 1, 'high_digit': 2},
+    'mnist_fourbags': {'none': 0, 'mostly_eight': 1, 'mostly_nine': 2, 'both': 3},
+    'mnist_even_odd': {'odd_majority': 0, 'even_majority': 1},
+    'mnist_adjacent_pairs': {'no_adjacent_pairs': 0, 'has_adjacent_pairs': 1},
+    'mnist_fourbags_plus': {'none': 0, 'three_five': 1, 'one_only': 2, 'one_and_seven': 3},
 }
 
 
@@ -43,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--dataset-root', type=Path, required=True)
     parser.add_argument('--checkpoint', type=Path, required=True)
-    parser.add_argument('--task', choices=tuple(LABEL_DICTS.keys()), default='mnist_binary')
+    parser.add_argument('--task', choices=tuple(LABEL_DICTS.keys()), default='mnist_fourbags')
     parser.add_argument('--model-type', choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis')
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')
     parser.add_argument('--drop-out', action='store_true', help='Set when the checkpoint was trained with dropout enabled.')

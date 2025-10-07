@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 import h5py
 import matplotlib.pyplot as plt
@@ -32,13 +32,26 @@ import pandas as pd
 
 PATCH_PIXELS = 28
 
+TASK_TO_CSV: Dict[str, str] = {
+    "mnist_fourbags": "mnist_fourbags.csv",
+    "mnist_even_odd": "mnist_even_odd.csv",
+    "mnist_adjacent_pairs": "mnist_adjacent_pairs.csv",
+    "mnist_fourbags_plus": "mnist_fourbags_plus.csv",
+}
+
+TASK_DISPLAY_NAMES: Dict[str, str] = {
+    "mnist_fourbags": "fourbags",
+    "mnist_even_odd": "even-odd",
+    "mnist_adjacent_pairs": "adjacent",
+    "mnist_fourbags_plus": "fourbags+",
+}
+
 
 @dataclass(frozen=True)
 class SlideLabels:
-    """Container for the binary and ternary labels tied to a slide."""
+    """Container for the task-specific labels tied to a slide."""
 
-    binary: Optional[str]
-    ternary: Optional[str]
+    values: Dict[str, Optional[str]]
 
 
 def parse_args() -> argparse.Namespace:
@@ -109,10 +122,10 @@ def load_labels(dataset_root: str, slide_id: str) -> SlideLabels:
         matches = frame.loc[frame["slide_id"] == slide_id, "label"]
         return matches.iloc[0] if not matches.empty else None
 
-    return SlideLabels(
-        binary=_read_label("mnist_binary.csv"),
-        ternary=_read_label("mnist_ternary.csv"),
-    )
+    values: Dict[str, Optional[str]] = {}
+    for task, csv_name in TASK_TO_CSV.items():
+        values[task] = _read_label(csv_name)
+    return SlideLabels(values=values)
 
 
 def reconstruct_canvas(features: np.ndarray, coords: np.ndarray) -> np.ndarray:
@@ -128,10 +141,11 @@ def reconstruct_canvas(features: np.ndarray, coords: np.ndarray) -> np.ndarray:
 
 def format_title(slide_id: str, labels: SlideLabels) -> str:
     parts = [slide_id]
-    if labels.binary is not None:
-        parts.append(f"binary: {labels.binary}")
-    if labels.ternary is not None:
-        parts.append(f"ternary: {labels.ternary}")
+    for task in sorted(labels.values.keys()):
+        value = labels.values[task]
+        if value is not None:
+            display = TASK_DISPLAY_NAMES.get(task, task)
+            parts.append(f"{display}: {value}")
     return " | ".join(parts)
 
 
