@@ -263,8 +263,21 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
         self.print_sample_trigger = False
         self.num_samples = 16
         self.temperature = torch.tensor([1.0])
-        self.prior_mu = torch.tensor([-5., 0.])
-        self.prior_logvar = torch.tensor([-1., 3.])
+        negative_prior_mu = -5.0
+        positive_prior_mu = 0.0
+        positive_prior_logvar = 3.0
+        negative_prior_logvar = -1.0
+
+        # NOTE: The model was originally implemented for binary classification, where
+        # the priors are indexed by the slide label.  When the encoder is re-used for
+        # multi-class datasets (e.g. the ternary MNIST example), the slide labels can
+        # exceed the hard-coded binary prior size which raises an IndexError.  We keep
+        # the legacy binary defaults for the "negative" class (index 0) and extend the
+        # tensors so that every class id encountered at train time has a valid prior.
+        self.prior_mu = torch.full((self.n_classes,), positive_prior_mu, dtype=torch.float32)
+        self.prior_mu[0] = negative_prior_mu
+        self.prior_logvar = torch.full((self.n_classes,), positive_prior_logvar, dtype=torch.float32)
+        self.prior_logvar[0] = negative_prior_logvar
 
         initialize_weights(self)
         self.top_k = top_k
@@ -354,8 +367,19 @@ class probabilistic_MIL_Bayes_spvis(nn.Module):
         self.dp_a = nn.Dropout(0.25)
         self.dp_b = nn.Dropout(0.25)
 
-        self.prior_mu = torch.tensor([-5., 0.])
-        self.prior_logvar = torch.tensor([-1., 3.])
+        negative_prior_mu = -5.0
+        positive_prior_mu = 0.0
+        positive_prior_logvar = 3.0
+        negative_prior_logvar = -1.0
+
+        # NOTE: See comment in probabilistic_MIL_Bayes_enc above.  The spatial
+        # visualization model shares the same prior construction and therefore needs
+        # the tensors sized to the number of classes to prevent IndexErrors when a
+        # multi-class slide label is used.
+        self.prior_mu = torch.full((n_classes,), positive_prior_mu, dtype=torch.float32)
+        self.prior_mu[0] = negative_prior_mu
+        self.prior_logvar = torch.full((n_classes,), positive_prior_logvar, dtype=torch.float32)
+        self.prior_logvar[0] = negative_prior_logvar
 
         initialize_weights(self)
         self.top_k = top_k
