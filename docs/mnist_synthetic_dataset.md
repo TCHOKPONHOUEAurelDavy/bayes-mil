@@ -12,12 +12,16 @@ artifacts. The script downloads MNIST through `torchvision` on first use.
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
     --output-dir /path/to/mnist_mil_dataset \
-    --num-slides 200 --k-folds 5
+    --task mnist_fourbags --num-slides 200 --k-folds 5
 ```
 
 Key options:
 
-- `--num-slides`: how many synthetic “slides” (bags) to create.
+- `--task`: which interpretability dataset to generate. Run the script again with a
+  different task name to create the other variants independently.
+- `--num-slides`: target number of synthetic “slides” (bags) to create. The script
+  may append a few extra slides so that the minority class still represents at
+  least 25% of the final dataset.
 - `--min-patches` / `--max-patches`: range for the number of MNIST digits per slide.
 - `--slides-per-case`: how many slides share the same case identifier.
 - `--k-folds`: number of cross-validation folds saved under `splits/<task>/`.
@@ -33,9 +37,8 @@ The directory will contain:
   for interpretability analyses.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
 - `splits/<task>/`: cross-validation CSV files for every task.
-- The generator ensures that every selected task observes each class at least
-  once, adding a handful of extra slides beyond `--num-slides` when necessary so
-  that stratified training and evaluation remain well defined.
+- The generator balances the dataset for the requested task so that the least
+  represented label still covers at least 25% of the slides.
 
 ## 2. Run the Bayes-MIL pipeline step by step
 
