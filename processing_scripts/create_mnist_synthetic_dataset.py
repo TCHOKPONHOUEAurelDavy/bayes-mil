@@ -193,7 +193,8 @@ def bundle_to_dict(task: str, numbers: Sequence[int]) -> dict:
     numbers_tensor = torch.tensor(numbers, dtype=torch.long)
     bundle = TASK_METADATA_FNS[task](numbers_tensor)
     label_map = TASK_LABEL_MAPS[task]
-    label_name = label_map[bundle.target]
+    target = int(bundle.target)
+    label_name = label_map.get(target, str(target))
     evidence = {k: v.detach().cpu().tolist() for k, v in bundle.evidence.items()}
     if bundle.instance_labels is None:
         instance_labels = None
@@ -201,8 +202,8 @@ def bundle_to_dict(task: str, numbers: Sequence[int]) -> dict:
         instance_labels = bundle.instance_labels.detach().cpu().tolist()
     return {
         "numbers": list(numbers),
-        "target": int(bundle.target),
-        "label": label_name,
+        "target": target,
+        "label_name": label_name,
         "evidence": evidence,
         "instance_labels": instance_labels,
     }
@@ -240,7 +241,7 @@ def to_boolean(train: Sequence[str], val: Sequence[str], test: Sequence[str]) ->
 def save_splits(slides: Sequence[dict], task: str, k_folds: int, seed: int, output_dir: Path) -> None:
     folds = stratified_folds(slides, k_folds, seed)
     case_lookup = {slide["slide_id"]: slide["case_id"] for slide in slides}
-    label_lookup = {slide["slide_id"]: slide["label"] for slide in slides}
+    label_lookup = {slide["slide_id"]: slide["label_name"] for slide in slides}
     split_root = output_dir / "splits" / task
     ensure_dir(split_root)
     for fold_idx in range(k_folds):
@@ -272,114 +273,6 @@ def save_splits(slides: Sequence[dict], task: str, k_folds: int, seed: int, outp
         pd.DataFrame(descriptor_rows).to_csv(
             split_root / f"splits_{fold_idx}_descriptor.csv", index=False
         )
-
-
-def generate_task_dataset(
-    slides: Sequence[Dict[str, Any]],
-    output_dir: str,
-    k_folds: int,
-    seed: int,
-    task_name: str,
-    metadata_fn: Callable[[torch.Tensor], EvidenceBundle],
-) -> List[TaskSlideExample]:
-    """Generate dataset artefacts for a single MNIST interpretability task."""
-
-    label_map = TASK_LABEL_MAPS[task_name]
-    evidence_dir = os.path.join(output_dir, "evidence", task_name)
-    ensure_directory(evidence_dir)
-
-    examples: List[TaskSlideExample] = []
-    for slide in slides:
-        numbers_tensor = torch.tensor(slide["numbers"], dtype=torch.long)
-        bundle = metadata_fn(numbers_tensor)
-        label = label_map.get(bundle.target)
-        if label is None:
-            raise KeyError(
-                f"Task {task_name} does not provide a label mapping for target {bundle.target}."
-            )
-
-        payload = bundle_to_dict(bundle, slide["numbers"], label)
-        torch.save(payload, os.path.join(evidence_dir, f"{slide['slide_id']}.pt"))
-
-        examples.append(
-            TaskSlideExample(
-                case_id=slide["case_id"],
-                slide_id=slide["slide_id"],
-                label=label,
-            )
-        )
-
-    df = pd.DataFrame(
-        {
-            "case_id": [example.case_id for example in examples],
-            "slide_id": [example.slide_id for example in examples],
-            "label": [example.label for example in examples],
-        }
-    )
-    df.to_csv(os.path.join(output_dir, f"{task_name}.csv"), index=False)
-
-    save_splits(
-        examples,
-        label_accessor=lambda example: example.label,
-        task_name=task_name,
-        output_dir=output_dir,
-        k_folds=k_folds,
-        rng=random.Random(seed),
-    )
-
-    return examples
-
-
-def generate_mnist_fourbags_dataset(
-    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
-) -> List[TaskSlideExample]:
-    return generate_task_dataset(
-        slides,
-        output_dir,
-        k_folds,
-        seed,
-        "mnist_fourbags",
-        TASK_METADATA_FNS["mnist_fourbags"],
-    )
-
-
-def generate_mnist_even_odd_dataset(
-    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
-) -> List[TaskSlideExample]:
-    return generate_task_dataset(
-        slides,
-        output_dir,
-        k_folds,
-        seed,
-        "mnist_even_odd",
-        TASK_METADATA_FNS["mnist_even_odd"],
-    )
-
-
-def generate_mnist_adjacent_pairs_dataset(
-    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
-) -> List[TaskSlideExample]:
-    return generate_task_dataset(
-        slides,
-        output_dir,
-        k_folds,
-        seed,
-        "mnist_adjacent_pairs",
-        TASK_METADATA_FNS["mnist_adjacent_pairs"],
-    )
-
-
-def generate_mnist_fourbags_plus_dataset(
-    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
-) -> List[TaskSlideExample]:
-    return generate_task_dataset(
-        slides,
-        output_dir,
-        k_folds,
-        seed,
-        "mnist_fourbags_plus",
-        TASK_METADATA_FNS["mnist_fourbags_plus"],
-    )
 
 
 def main() -> None:
@@ -434,7 +327,8 @@ def main() -> None:
                 {
                     "case_id": case_id,
                     "slide_id": slide_id,
-                    "label": evidence_payload["label"],
+                    "label": evidence_payload["target"],
+                    "label_name": evidence_payload["label_name"],
                     "numbers": digits,
                 }
             )
@@ -444,6 +338,7 @@ def main() -> None:
             "case_id": [slide["case_id"] for slide in slides],
             "slide_id": [slide["slide_id"] for slide in slides],
             "label": [slide["label"] for slide in slides],
+            "label_name": [slide["label_name"] for slide in slides],
         }
     )
     df.to_csv(csv_path, index=False)

@@ -33,6 +33,9 @@ The directory will contain:
 - `mnist_even_odd.csv`: labels for the even-versus-odd majority task.
 - `mnist_adjacent_pairs.csv`: labels for the adjacent-pair detection task.
 - `mnist_fourbags_plus.csv`: labels for the composite rule-based task.
+- Each CSV exposes a numeric `label` column used during training and a
+  human-readable `label_name` column that mirrors the original rule
+  descriptions.
 - `evidence/<task>/slide_xxxx.pt`: per-instance evidence and digit identities saved
   for interpretability analyses.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.

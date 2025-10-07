@@ -46,6 +46,18 @@ TASK_DISPLAY_NAMES: Dict[str, str] = {
     "mnist_fourbags_plus": "fourbags+",
 }
 
+TASK_LABEL_NAMES: Dict[str, Dict[int, str]] = {
+    "mnist_fourbags": {0: "none", 1: "mostly_eight", 2: "mostly_nine", 3: "both"},
+    "mnist_even_odd": {0: "odd_majority", 1: "even_majority"},
+    "mnist_adjacent_pairs": {0: "no_adjacent_pairs", 1: "has_adjacent_pairs"},
+    "mnist_fourbags_plus": {
+        0: "none",
+        1: "three_five",
+        2: "one_only",
+        3: "one_and_seven",
+    },
+}
+
 
 @dataclass(frozen=True)
 class SlideLabels:
@@ -114,17 +126,32 @@ def load_slide_arrays(dataset_root: str, slide_id: str) -> tuple[np.ndarray, np.
 
 
 def load_labels(dataset_root: str, slide_id: str) -> SlideLabels:
-    def _read_label(csv_name: str) -> Optional[str]:
+    def _read_label(task: str, csv_name: str) -> Optional[str]:
         csv_path = os.path.join(dataset_root, csv_name)
         if not os.path.exists(csv_path):
             return None
         frame = pd.read_csv(csv_path)
-        matches = frame.loc[frame["slide_id"] == slide_id, "label"]
-        return matches.iloc[0] if not matches.empty else None
+        if "slide_id" not in frame.columns:
+            return None
+        row = frame.loc[frame["slide_id"] == slide_id]
+        if row.empty:
+            return None
+        if "label_name" in frame.columns:
+            value = row.iloc[0]["label_name"]
+            return None if pd.isna(value) else str(value)
+        if "label" not in frame.columns:
+            return None
+        value = row.iloc[0]["label"]
+        if pd.isna(value):
+            return None
+        if pd.api.types.is_numeric_dtype(frame["label"]):
+            label_map = TASK_LABEL_NAMES.get(task)
+            return label_map.get(int(value), str(value)) if label_map else str(value)
+        return str(value)
 
     values: Dict[str, Optional[str]] = {}
     for task, csv_name in TASK_TO_CSV.items():
-        values[task] = _read_label(csv_name)
+        values[task] = _read_label(task, csv_name)
     return SlideLabels(values=values)
 
 
