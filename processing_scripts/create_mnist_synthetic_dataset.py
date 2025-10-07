@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 
 import h5py
 import numpy as np
@@ -78,14 +78,13 @@ TASK_LABEL_MAPS = {
     },
 }
 
-
 @dataclass(frozen=True)
-class SlideExample:
-    """Container for the metadata associated with one synthetic slide."""
+class TaskSlideExample:
+    """Container linking a slide to the label of a specific task."""
 
     case_id: str
     slide_id: str
-    labels: Dict[str, str]
+    label: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -139,6 +138,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=7,
         help="Random seed used for reproducibility (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--tasks",
+        type=str,
+        nargs="+",
+        choices=sorted(TASK_LABEL_MAPS.keys()),
+        help=(
+            "Subset of MNIST interpretability tasks to generate. "
+            "Defaults to all tasks when omitted."
+        ),
     )
 
     return parser.parse_args()
@@ -266,7 +275,7 @@ def to_boolean_split(train: Sequence[str], val: Sequence[str], test: Sequence[st
 
 
 def save_splits(
-    examples: Sequence[SlideExample],
+    examples: Sequence[TaskSlideExample],
     label_accessor,
     task_name: str,
     output_dir: str,
@@ -323,6 +332,114 @@ def save_splits(
         )
 
 
+def generate_task_dataset(
+    slides: Sequence[Dict[str, Any]],
+    output_dir: str,
+    k_folds: int,
+    seed: int,
+    task_name: str,
+    metadata_fn: Callable[[torch.Tensor], EvidenceBundle],
+) -> List[TaskSlideExample]:
+    """Generate dataset artefacts for a single MNIST interpretability task."""
+
+    label_map = TASK_LABEL_MAPS[task_name]
+    evidence_dir = os.path.join(output_dir, "evidence", task_name)
+    ensure_directory(evidence_dir)
+
+    examples: List[TaskSlideExample] = []
+    for slide in slides:
+        numbers_tensor = torch.tensor(slide["numbers"], dtype=torch.long)
+        bundle = metadata_fn(numbers_tensor)
+        label = label_map.get(bundle.target)
+        if label is None:
+            raise KeyError(
+                f"Task {task_name} does not provide a label mapping for target {bundle.target}."
+            )
+
+        payload = bundle_to_dict(bundle, slide["numbers"], label)
+        torch.save(payload, os.path.join(evidence_dir, f"{slide['slide_id']}.pt"))
+
+        examples.append(
+            TaskSlideExample(
+                case_id=slide["case_id"],
+                slide_id=slide["slide_id"],
+                label=label,
+            )
+        )
+
+    df = pd.DataFrame(
+        {
+            "case_id": [example.case_id for example in examples],
+            "slide_id": [example.slide_id for example in examples],
+            "label": [example.label for example in examples],
+        }
+    )
+    df.to_csv(os.path.join(output_dir, f"{task_name}.csv"), index=False)
+
+    save_splits(
+        examples,
+        label_accessor=lambda example: example.label,
+        task_name=task_name,
+        output_dir=output_dir,
+        k_folds=k_folds,
+        rng=random.Random(seed),
+    )
+
+    return examples
+
+
+def generate_mnist_fourbags_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_fourbags",
+        TASK_METADATA_FNS["mnist_fourbags"],
+    )
+
+
+def generate_mnist_even_odd_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_even_odd",
+        TASK_METADATA_FNS["mnist_even_odd"],
+    )
+
+
+def generate_mnist_adjacent_pairs_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_adjacent_pairs",
+        TASK_METADATA_FNS["mnist_adjacent_pairs"],
+    )
+
+
+def generate_mnist_fourbags_plus_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_fourbags_plus",
+        TASK_METADATA_FNS["mnist_fourbags_plus"],
+    )
+
+
 def main() -> None:
     args = parse_args()
 
@@ -344,10 +461,15 @@ def main() -> None:
         for digit in range(10)
     }
 
-    examples: List[SlideExample] = []
     evidence_root = os.path.join(args.output_dir, "evidence")
     if os.path.exists(evidence_root):
         shutil.rmtree(evidence_root)
+
+    if args.tasks is None:
+        selected_tasks = list(TASK_LABEL_MAPS.keys())
+    else:
+        # ``choices`` already ensures validity; keep ordering deterministic.
+        selected_tasks = list(dict.fromkeys(args.tasks))
 
     attempt = 0
     slides: List[Dict[str, Any]] = []
@@ -356,8 +478,8 @@ def main() -> None:
         rng = random.Random(args.seed + attempt)
         slides = []
         class_counts = {
-            task: {label: 0 for label in label_map.values()}
-            for task, label_map in TASK_LABEL_MAPS.items()
+            task: {label: 0 for label in TASK_LABEL_MAPS[task].values()}
+            for task in selected_tasks
         }
         for _ in range(args.num_slides):
             bag_size = rng.randint(args.min_patches, args.max_patches)
@@ -367,19 +489,14 @@ def main() -> None:
             )
             coords, width, height = make_grid_coords(len(digit_labels))
             numbers_tensor = torch.tensor(digit_labels, dtype=torch.long)
-
-            task_labels: Dict[str, str] = {}
-            bundles: Dict[str, EvidenceBundle] = {}
-            for task_name, metadata_fn in TASK_METADATA_FNS.items():
-                bundle = metadata_fn(numbers_tensor)
+            for task_name in selected_tasks:
+                bundle = TASK_METADATA_FNS[task_name](numbers_tensor)
                 label_map = TASK_LABEL_MAPS[task_name]
                 label = label_map.get(bundle.target)
                 if label is None:
                     raise KeyError(
                         f"Task {task_name} does not provide a label mapping for target {bundle.target}."
                     )
-                task_labels[task_name] = label
-                bundles[task_name] = bundle
                 class_counts[task_name][label] += 1
 
             slides.append(
@@ -389,8 +506,6 @@ def main() -> None:
                     "width": width,
                     "height": height,
                     "numbers": digit_labels,
-                    "labels": task_labels,
-                    "bundles": bundles,
                 }
             )
 
@@ -403,6 +518,7 @@ def main() -> None:
             "Consider increasing --num-slides or widening the patch-count range."
         )
 
+    slides_with_ids: List[Dict[str, Any]] = []
     for slide_index, slide in enumerate(slides):
         slide_id = f"slide_{slide_index:04d}"
         case_id = f"case_{slide_index // args.slides_per_case:04d}"
@@ -410,41 +526,24 @@ def main() -> None:
         write_h5(slide["features"], slide["coords"], os.path.join(h5_root, f"{slide_id}.h5"))
         save_shape_entry(shape_file, slide_id, slide["width"], slide["height"])
 
-        examples.append(
-            SlideExample(
-                case_id=case_id,
-                slide_id=slide_id,
-                labels=slide["labels"],
-            )
-        )
+        slides_with_ids.append({**slide, "slide_id": slide_id, "case_id": case_id})
 
-        for task_name, bundle in slide["bundles"].items():
-            task_dir = os.path.join(evidence_root, task_name)
-            ensure_directory(task_dir)
-            payload = bundle_to_dict(
-                bundle,
-                slide["numbers"],
-                slide["labels"][task_name],
-            )
-            torch.save(payload, os.path.join(task_dir, f"{slide_id}.pt"))
+    task_generators: Dict[
+        str,
+        Callable[[Sequence[Dict[str, Any]], str, int, int], List[TaskSlideExample]],
+    ] = {
+        "mnist_fourbags": generate_mnist_fourbags_dataset,
+        "mnist_even_odd": generate_mnist_even_odd_dataset,
+        "mnist_adjacent_pairs": generate_mnist_adjacent_pairs_dataset,
+        "mnist_fourbags_plus": generate_mnist_fourbags_plus_dataset,
+    }
 
-    for task_name in TASK_METADATA_FNS.keys():
-        df = pd.DataFrame(
-            {
-                "case_id": [example.case_id for example in examples],
-                "slide_id": [example.slide_id for example in examples],
-                "label": [example.labels[task_name] for example in examples],
-            }
-        )
-        df.to_csv(os.path.join(args.output_dir, f"{task_name}.csv"), index=False)
-
-        save_splits(
-            examples,
-            label_accessor=lambda example, task=task_name: example.labels[task],
-            task_name=task_name,
-            output_dir=args.output_dir,
-            k_folds=args.k_folds,
-            rng=random.Random(args.seed),
+    for task_name in selected_tasks:
+        task_generators[task_name](
+            slides_with_ids,
+            args.output_dir,
+            args.k_folds,
+            args.seed,
         )
 
     print(f"Synthetic dataset written to {args.output_dir}")
