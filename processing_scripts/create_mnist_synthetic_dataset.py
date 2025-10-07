@@ -142,7 +142,6 @@ def save_splits(
         pd.DataFrame(bool_rows, columns=["slide_id", "train", "val", "test"]).to_csv(
             split_root / f"splits_{fold_idx}_bool.csv", index=False
         )
-
         descriptor_rows = []
         for slide_id in train_ids:
             descriptor_rows.append(
