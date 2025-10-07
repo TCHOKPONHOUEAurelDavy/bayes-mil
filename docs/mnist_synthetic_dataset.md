@@ -88,7 +88,11 @@ The script writes PNGs to
 `heatmap_summary.csv` with predicted labels. Use `--split val` or `--split train`
 to export other subsets, or `--split all` to process every slide contained in
 the descriptor CSV. Pass `--skip-existing` to avoid re-rendering PNGs that are
-already present.
+already present. When working with the ternary task, rerun the training and
+evaluation helpers with `--task mnist_ternary` so that the checkpoint contains a
+three-class classifier. The heatmap export utility now validates that the
+selected checkpoint matches the requested task and raises a clear error if the
+class counts differ.
 
 ## 3. Troubleshooting
 
