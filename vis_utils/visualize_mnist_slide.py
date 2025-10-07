@@ -83,6 +83,16 @@ def parse_args() -> argparse.Namespace:
         help="Identifier of the slide to visualize (e.g. slide_0001).",
     )
     parser.add_argument(
+        "--task",
+        type=str,
+        choices=sorted(TASK_TO_CSV.keys()),
+        default=None,
+        help=(
+            "Name of the interpretability task whose label should be displayed. "
+            "Defaults to showing every task found for the slide."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -125,7 +135,9 @@ def load_slide_arrays(dataset_root: str, slide_id: str) -> tuple[np.ndarray, np.
     return features.astype(np.float32), coords.astype(np.int32)
 
 
-def load_labels(dataset_root: str, slide_id: str) -> SlideLabels:
+def load_labels(
+    dataset_root: str, slide_id: str, task_filter: Optional[str] = None
+) -> SlideLabels:
     def _read_label(task: str, csv_name: str) -> Optional[str]:
         csv_path = os.path.join(dataset_root, csv_name)
         if not os.path.exists(csv_path):
@@ -150,7 +162,12 @@ def load_labels(dataset_root: str, slide_id: str) -> SlideLabels:
         return str(value)
 
     values: Dict[str, Optional[str]] = {}
-    for task, csv_name in TASK_TO_CSV.items():
+    tasks = (
+        {task_filter: TASK_TO_CSV[task_filter]}
+        if task_filter is not None
+        else TASK_TO_CSV
+    )
+    for task, csv_name in tasks.items():
         values[task] = _read_label(task, csv_name)
     return SlideLabels(values=values)
 
@@ -191,7 +208,7 @@ def main() -> None:
     output_path = args.output or default_output_path(args.dataset_root, args.slide_id)
 
     features, coords = load_slide_arrays(args.dataset_root, args.slide_id)
-    labels = load_labels(args.dataset_root, args.slide_id)
+    labels = load_labels(args.dataset_root, args.slide_id, task_filter=args.task)
     canvas = reconstruct_canvas(features, coords)
     title = format_title(args.slide_id, labels)
     save_figure(canvas, output_path, title, dpi=args.dpi)
