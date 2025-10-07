@@ -109,11 +109,6 @@ def save_splits(
     label_lookup = {slide["slide_id"]: slide["label"] for slide in slides}
     case_lookup = {slide["slide_id"]: slide["case_id"] for slide in slides}
 
-    def pad(sequence: List[str], target: int) -> List[str]:
-        return sequence + [""] * (target - len(sequence))
-
-    max_len = max(len(fold) for fold in folds)
-
     for fold_idx in range(k_folds):
         test_ids = folds[fold_idx]
         val_ids = folds[(fold_idx + 1) % k_folds]
@@ -123,11 +118,16 @@ def save_splits(
                 train_ids.extend(fold)
         train_ids.sort()
 
+        max_len = max(len(train_ids), len(val_ids), len(test_ids))
+
+        def pad(sequence: List[str]) -> List[str]:
+            return sequence + [""] * (max_len - len(sequence))
+
         wide = pd.DataFrame(
             {
-                "train": pad(train_ids, max_len),
-                "val": pad(val_ids, max_len),
-                "test": pad(test_ids, max_len),
+                "train": pad(train_ids),
+                "val": pad(val_ids),
+                "test": pad(test_ids),
             }
         )
         wide.to_csv(split_root / f"splits_{fold_idx}.csv", index=False)
