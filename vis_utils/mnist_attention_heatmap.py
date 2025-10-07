@@ -213,20 +213,35 @@ class MNISTHeatmapRenderer:
         self.inv_label_dict = {idx: name for name, idx in self.label_dict.items()}
 
         checkpoint_state = torch.load(self.checkpoint, map_location='cpu')
+
+        def resolve_state_dict(raw_state):
+            if isinstance(raw_state, dict):
+                for key in ('state_dict', 'model_state_dict', 'model'):
+                    nested = raw_state.get(key)
+                    if isinstance(nested, dict):
+                        return nested
+                return raw_state
+            raise TypeError(
+                f'Unexpected checkpoint format in {self.checkpoint}: expected a mapping, got {type(raw_state)!r}'
+            )
+
+        state_dict = resolve_state_dict(checkpoint_state)
+
         classifier_weight_key = None
-        for candidate in ('classifiers.weight', 'module.classifiers.weight'):
-            if candidate in checkpoint_state:
-                classifier_weight_key = candidate
+        for key in state_dict.keys():
+            if key.endswith('classifiers.weight'):
+                classifier_weight_key = key
                 break
 
         if classifier_weight_key is None:
-            available = ', '.join(sorted(checkpoint_state.keys()))
+            available = ', '.join(sorted(state_dict.keys()))
             raise KeyError(
-                'Could not locate classifiers.weight in checkpoint ' f'{self.checkpoint}. '
+                'Could not locate classifiers.weight in checkpoint '
+                f'{self.checkpoint}. '
                 f'Available keys: {available}'
             )
 
-        checkpoint_classes = int(checkpoint_state[classifier_weight_key].shape[0])
+        checkpoint_classes = int(state_dict[classifier_weight_key].shape[0])
         expected_classes = len(self.label_dict)
         if checkpoint_classes != expected_classes:
             raise ValueError(
