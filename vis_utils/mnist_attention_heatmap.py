@@ -212,10 +212,34 @@ class MNISTHeatmapRenderer:
         self.label_dict = LABEL_DICTS[task]
         self.inv_label_dict = {idx: name for name, idx in self.label_dict.items()}
 
+        checkpoint_state = torch.load(self.checkpoint, map_location='cpu')
+        classifier_weight_key = None
+        for candidate in ('classifiers.weight', 'module.classifiers.weight'):
+            if candidate in checkpoint_state:
+                classifier_weight_key = candidate
+                break
+
+        if classifier_weight_key is None:
+            available = ', '.join(sorted(checkpoint_state.keys()))
+            raise KeyError(
+                'Could not locate classifiers.weight in checkpoint ' f'{self.checkpoint}. '
+                f'Available keys: {available}'
+            )
+
+        checkpoint_classes = int(checkpoint_state[classifier_weight_key].shape[0])
+        expected_classes = len(self.label_dict)
+        if checkpoint_classes != expected_classes:
+            raise ValueError(
+                f'Checkpoint {self.checkpoint} contains a classifier trained with '
+                f'{checkpoint_classes} classes, but task {task!r} expects '
+                f'{expected_classes}. Ensure you are passing the correct --task '
+                'and checkpoint combination.'
+            )
+
         init_args = SimpleNamespace(
             model_type=model_type,
             drop_out=drop_out,
-            n_classes=len(self.label_dict),
+            n_classes=checkpoint_classes,
             model_size=model_size,
         )
 
