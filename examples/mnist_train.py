@@ -22,7 +22,16 @@ def parse_args() -> argparse.Namespace:
         description='Launch Bayes-MIL training on the synthetic MNIST dataset.',
     )
     parser.add_argument('--dataset-root', type=Path, required=True, help='Directory produced by create_mnist_synthetic_dataset.py.')
-    parser.add_argument('--task', choices=('mnist_binary', 'mnist_ternary'), default='mnist_binary')
+    parser.add_argument(
+        '--task',
+        choices=(
+            'mnist_fourbags',
+            'mnist_even_odd',
+            'mnist_adjacent_pairs',
+            'mnist_fourbags_plus',
+        ),
+        default='mnist_fourbags',
+    )
     parser.add_argument('--exp-code', type=str, default='mnist_demo', help='Experiment identifier forwarded to main.py.')
     parser.add_argument('--results-dir', type=Path, default=REPO_ROOT / 'results', help='Where checkpoints will be written.')
     parser.add_argument('--model-type', choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis')
