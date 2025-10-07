@@ -30,6 +30,8 @@ import math
 import os
 import random
 import shutil
+import sys
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
@@ -40,7 +42,14 @@ import pandas as pd
 import torch
 from torchvision import datasets, transforms
 
-from processing_scripts.mnist_interpretability_tasks import (
+# Allow running the script directly via an absolute path by ensuring the
+# repository root (which contains the ``processing_scripts`` package) is on the
+# Python module search path.
+if __package__ in {None, ""}:
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+
+from processing_scripts.mnist_interpretability_tasks import (  # noqa: E402
     EvidenceBundle,
     TASK_METADATA_FNS,
 )
