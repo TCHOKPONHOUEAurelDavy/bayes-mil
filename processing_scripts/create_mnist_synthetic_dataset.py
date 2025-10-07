@@ -3,8 +3,10 @@
 The resulting directory mimics the structure expected by ``Generic_MIL_Dataset``:
 
 * ``h5_files`` contains one HDF5 file per synthetic "slide".
-* ``mnist_binary.csv`` stores slide-level labels for a binary task.
-* ``mnist_ternary.csv`` stores slide-level labels for a three-class task.
+* ``mnist_fourbags.csv`` stores slide-level labels for the Four-Bags task.
+* ``mnist_even_odd.csv`` stores slide-level labels for the even/odd majority task.
+* ``mnist_adjacent_pairs.csv`` stores slide-level labels for the adjacent-pairs task.
+* ``mnist_fourbags_plus.csv`` stores slide-level labels for the Four-Bags-Plus task.
 * ``splits/<task>/`` holds cross-validation splits aligned with ``main.py``.
 * ``images_shape.txt`` records the spatial canvas size for every slide.
 
@@ -17,7 +19,8 @@ Example
         --output-dir data/mnist_mil --num-slides 150 --k-folds 5
 
 The command above creates a dataset that can be consumed by the training
-entry-point with ``--task mnist_binary`` or ``--task mnist_ternary``.
+entry-point with the new tasks (``mnist_fourbags``, ``mnist_even_odd``,
+``mnist_adjacent_pairs``, and ``mnist_fourbags_plus``).
 """
 
 from __future__ import annotations
@@ -26,20 +29,53 @@ import argparse
 import math
 import os
 import random
+import shutil
+import sys
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import h5py
 import numpy as np
 import pandas as pd
+import torch
 from torchvision import datasets, transforms
 
+# Allow running the script directly via an absolute path by ensuring the
+# repository root (which contains the ``processing_scripts`` package) is on the
+# Python module search path.
+if __package__ in {None, ""}:
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
 
-GROUP_MAPPING = {
-    "low_digit": {0, 1, 2, 3},
-    "mid_digit": {4, 5, 6},
-    "high_digit": {7, 8, 9},
+from processing_scripts.mnist_interpretability_tasks import (  # noqa: E402
+    EvidenceBundle,
+    TASK_METADATA_FNS,
+)
+
+
+TASK_LABEL_MAPS = {
+    "mnist_fourbags": {
+        0: "none",
+        1: "mostly_eight",
+        2: "mostly_nine",
+        3: "both",
+    },
+    "mnist_even_odd": {
+        0: "odd_majority",
+        1: "even_majority",
+    },
+    "mnist_adjacent_pairs": {
+        0: "no_adjacent_pairs",
+        1: "has_adjacent_pairs",
+    },
+    "mnist_fourbags_plus": {
+        0: "none",
+        1: "three_five",
+        2: "one_only",
+        3: "one_and_seven",
+    },
 }
 
 
@@ -49,8 +85,7 @@ class SlideExample:
 
     case_id: str
     slide_id: str
-    binary_label: str
-    ternary_label: str
+    labels: Dict[str, str]
 
 
 def parse_args() -> argparse.Namespace:
@@ -154,142 +189,30 @@ def make_grid_coords(num_instances: int, patch_size: int = 28) -> Tuple[np.ndarr
     return np.array(coords, dtype=np.int32), width, height
 
 
-def determine_labels(digits: Sequence[int]) -> Tuple[str, str]:
-    """Assign binary and ternary slide labels based on contained digits."""
-
-    binary_label = "positive" if any(digit >= 5 for digit in digits) else "negative"
-
-    counts = {
-        group: sum(1 for digit in digits if digit in members)
-        for group, members in GROUP_MAPPING.items()
-    }
-    # Resolve ties deterministically by sorting on (count, group_name).
-    ternary_label = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
-    return binary_label, ternary_label
-
-
 def ensure_directory(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def majority_count(num_instances: int) -> int:
-    """Return the minimal count required to secure a strict majority."""
+def bundle_to_dict(
+    bundle: EvidenceBundle, numbers: Sequence[int], label: str
+) -> Dict[str, Any]:
+    """Convert an :class:`EvidenceBundle` to a serialisable dictionary."""
 
-    return max(1, num_instances // 2 + 1)
-
-
-def generate_digit_sequence(
-    rng: random.Random,
-    bag_size: int,
-    binary_label: str,
-    ternary_label: str,
-) -> Sequence[int]:
-    """Create a digit sequence that realizes the requested labels."""
-
-    if binary_label not in {"positive", "negative"}:
-        raise ValueError(f"Unknown binary label: {binary_label}")
-    if ternary_label not in GROUP_MAPPING:
-        raise ValueError(f"Unknown ternary label: {ternary_label}")
-
-    if binary_label == "negative" and ternary_label == "high_digit":
-        raise ValueError("Cannot construct a negative slide with a high_digit majority.")
-
-    digits: List[int] = []
-
-    if binary_label == "negative":
-        if ternary_label == "low_digit":
-            digits = [rng.choice(tuple(GROUP_MAPPING["low_digit"])) for _ in range(bag_size)]
-        else:  # ternary_label == "mid_digit"
-            # Ensure a strict majority of "4" digits while allowing some lower digits.
-            majority = majority_count(bag_size)
-            digits = [4] * majority
-            remaining = bag_size - majority
-            pool = tuple(GROUP_MAPPING["low_digit"])
-            digits.extend(rng.choice(pool) for _ in range(remaining))
-            rng.shuffle(digits)
-    else:  # binary positive
-        if ternary_label == "low_digit":
-            if bag_size == 1:
-                raise ValueError(
-                    "Cannot synthesize a positive slide with a single low_digit instance."
-                )
-            low_pool = tuple(GROUP_MAPPING["low_digit"])
-            digits = [rng.choice(low_pool) for _ in range(bag_size)]
-            # Inject a high-digit instance to flip the binary label while preserving majority.
-            digits[-1] = rng.choice(tuple(GROUP_MAPPING["high_digit"]))
-            rng.shuffle(digits)
-        elif ternary_label == "mid_digit":
-            mid_pool = tuple(GROUP_MAPPING["mid_digit"])
-            digits = [rng.choice(mid_pool) for _ in range(majority_count(bag_size))]
-            if not any(digit >= 5 for digit in digits):
-                digits[0] = rng.choice((5, 6))
-            remaining = bag_size - len(digits)
-            filler_pool = tuple(set(range(10)) - GROUP_MAPPING["mid_digit"])
-            digits.extend(rng.choice(filler_pool) for _ in range(remaining))
-            rng.shuffle(digits)
-        else:  # ternary_label == "high_digit"
-            high_pool = tuple(GROUP_MAPPING["high_digit"])
-            digits = [rng.choice(high_pool) for _ in range(majority_count(bag_size))]
-            remaining = bag_size - len(digits)
-            filler_pool = tuple(range(10))
-            digits.extend(rng.choice(filler_pool) for _ in range(remaining))
-            rng.shuffle(digits)
-
-    if len(digits) != bag_size:
-        raise ValueError("Digit synthesis failed to match the requested bag size.")
-
-    derived_binary, derived_ternary = determine_labels(digits)
-    if derived_binary != binary_label or derived_ternary != ternary_label:
-        raise ValueError(
-            "Generated digits do not satisfy requested labels: "
-            f"wanted ({binary_label}, {ternary_label}) but obtained "
-            f"({derived_binary}, {derived_ternary})."
-        )
-
-    return digits
-
-
-def plan_label_allocation(num_slides: int, rng: random.Random) -> List[Tuple[str, str]]:
-    """Return a balanced list of (binary_label, ternary_label) assignments."""
-
-    ternary_base = num_slides // 3
-    ternary_counts = {
-        "low_digit": ternary_base,
-        "mid_digit": ternary_base,
-        "high_digit": ternary_base,
+    evidence = {
+        cls: tensor.detach().cpu().numpy().tolist()
+        for cls, tensor in bundle.evidence.items()
     }
-    for idx, label in enumerate(("low_digit", "mid_digit", "high_digit")[: num_slides % 3]):
-        ternary_counts[label] += 1
-
-    positive_target = math.ceil(num_slides / 2)
-    negative_target = num_slides - positive_target
-
-    plans: List[Tuple[str, str]] = []
-
-    # High-digit slides must be positive.
-    for _ in range(ternary_counts["high_digit"]):
-        plans.append(("positive", "high_digit"))
-        positive_target -= 1
-
-    remaining_labels = (
-        ["low_digit"] * ternary_counts["low_digit"]
-        + ["mid_digit"] * ternary_counts["mid_digit"]
-    )
-
-    for label in remaining_labels:
-        if negative_target > 0:
-            plans.append(("negative", label))
-            negative_target -= 1
-        else:
-            plans.append(("positive", label))
-            positive_target -= 1
-
-    if positive_target != 0 or negative_target != 0:
-        raise ValueError("Failed to allocate label plan with the requested balance.")
-
-    rng.shuffle(plans)
-
-    return plans
+    if bundle.instance_labels is not None:
+        instance_labels = bundle.instance_labels.detach().cpu().numpy().tolist()
+    else:
+        instance_labels = None
+    return {
+        "numbers": list(numbers),
+        "target": bundle.target,
+        "label": label,
+        "evidence": evidence,
+        "instance_labels": instance_labels,
+    }
 
 
 def write_h5(features: np.ndarray, coords: np.ndarray, destination: str) -> None:
@@ -421,81 +344,108 @@ def main() -> None:
         for digit in range(10)
     }
 
-    rng = random.Random(args.seed)
     examples: List[SlideExample] = []
+    evidence_root = os.path.join(args.output_dir, "evidence")
+    if os.path.exists(evidence_root):
+        shutil.rmtree(evidence_root)
 
-    label_plan = plan_label_allocation(args.num_slides, rng)
-
-    for slide_index, (binary_label, ternary_label) in enumerate(label_plan):
-        for _ in range(128):
+    attempt = 0
+    slides: List[Dict[str, Any]] = []
+    class_counts: Dict[str, Dict[str, int]] = {}
+    while attempt < 32:
+        rng = random.Random(args.seed + attempt)
+        slides = []
+        class_counts = {
+            task: {label: 0 for label in label_map.values()}
+            for task, label_map in TASK_LABEL_MAPS.items()
+        }
+        for _ in range(args.num_slides):
             bag_size = rng.randint(args.min_patches, args.max_patches)
-            try:
-                digit_sequence = generate_digit_sequence(
-                    rng, bag_size, binary_label, ternary_label
-                )
-            except ValueError:
-                continue
-
+            digit_sequence = [rng.randrange(10) for _ in range(bag_size)]
             features, digit_labels = sample_slide_contents(
                 rng, digit_sequence, images, digit_to_indices
             )
             coords, width, height = make_grid_coords(len(digit_labels))
-            break
-        else:
-            raise RuntimeError(
-                "Failed to synthesize a slide matching the requested label combination. "
-                "Consider relaxing the patch-count bounds."
+            numbers_tensor = torch.tensor(digit_labels, dtype=torch.long)
+
+            task_labels: Dict[str, str] = {}
+            bundles: Dict[str, EvidenceBundle] = {}
+            for task_name, metadata_fn in TASK_METADATA_FNS.items():
+                bundle = metadata_fn(numbers_tensor)
+                label_map = TASK_LABEL_MAPS[task_name]
+                label = label_map.get(bundle.target)
+                if label is None:
+                    raise KeyError(
+                        f"Task {task_name} does not provide a label mapping for target {bundle.target}."
+                    )
+                task_labels[task_name] = label
+                bundles[task_name] = bundle
+                class_counts[task_name][label] += 1
+
+            slides.append(
+                {
+                    "features": features,
+                    "coords": coords,
+                    "width": width,
+                    "height": height,
+                    "numbers": digit_labels,
+                    "labels": task_labels,
+                    "bundles": bundles,
+                }
             )
 
+        if all(all(count > 0 for count in counts.values()) for counts in class_counts.values()):
+            break
+        attempt += 1
+    else:
+        raise RuntimeError(
+            "Failed to synthesise a dataset containing all classes for every task. "
+            "Consider increasing --num-slides or widening the patch-count range."
+        )
+
+    for slide_index, slide in enumerate(slides):
         slide_id = f"slide_{slide_index:04d}"
         case_id = f"case_{slide_index // args.slides_per_case:04d}"
 
-        write_h5(features, coords, os.path.join(h5_root, f"{slide_id}.h5"))
-        save_shape_entry(shape_file, slide_id, width, height)
+        write_h5(slide["features"], slide["coords"], os.path.join(h5_root, f"{slide_id}.h5"))
+        save_shape_entry(shape_file, slide_id, slide["width"], slide["height"])
 
         examples.append(
             SlideExample(
                 case_id=case_id,
                 slide_id=slide_id,
-                binary_label=binary_label,
-                ternary_label=ternary_label,
+                labels=slide["labels"],
             )
         )
 
-    binary_df = pd.DataFrame(
-        {
-            "case_id": [example.case_id for example in examples],
-            "slide_id": [example.slide_id for example in examples],
-            "label": [example.binary_label for example in examples],
-        }
-    )
-    binary_df.to_csv(os.path.join(args.output_dir, "mnist_binary.csv"), index=False)
+        for task_name, bundle in slide["bundles"].items():
+            task_dir = os.path.join(evidence_root, task_name)
+            ensure_directory(task_dir)
+            payload = bundle_to_dict(
+                bundle,
+                slide["numbers"],
+                slide["labels"][task_name],
+            )
+            torch.save(payload, os.path.join(task_dir, f"{slide_id}.pt"))
 
-    ternary_df = pd.DataFrame(
-        {
-            "case_id": [example.case_id for example in examples],
-            "slide_id": [example.slide_id for example in examples],
-            "label": [example.ternary_label for example in examples],
-        }
-    )
-    ternary_df.to_csv(os.path.join(args.output_dir, "mnist_ternary.csv"), index=False)
+    for task_name in TASK_METADATA_FNS.keys():
+        df = pd.DataFrame(
+            {
+                "case_id": [example.case_id for example in examples],
+                "slide_id": [example.slide_id for example in examples],
+                "label": [example.labels[task_name] for example in examples],
+            }
+        )
+        df.to_csv(os.path.join(args.output_dir, f"{task_name}.csv"), index=False)
 
-    save_splits(
-        examples,
-        label_accessor=lambda example: example.binary_label,
-        task_name="mnist_binary",
-        output_dir=args.output_dir,
-        k_folds=args.k_folds,
-        rng=rng,
-    )
-    save_splits(
-        examples,
-        label_accessor=lambda example: example.ternary_label,
-        task_name="mnist_ternary",
-        output_dir=args.output_dir,
-        k_folds=args.k_folds,
-        rng=rng,
-    )
+        save_splits(
+            examples,
+            label_accessor=lambda example, task=task_name: example.labels[task],
+            task_name=task_name,
+            output_dir=args.output_dir,
+            k_folds=args.k_folds,
+            rng=random.Random(args.seed),
+        )
 
     print(f"Synthetic dataset written to {args.output_dir}")
 
