@@ -46,16 +46,14 @@ generate a toy dataset derived from MNIST:
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
     --output-dir /path/to/mnist_mil_dataset \
-    --task mnist_fourbags
+    --dataset mnist_fourbags
 ```
 
-The command writes the expected `h5_files/`, metadata CSV files, and cross-validation
-splits for the requested task. Each CSV contains a numeric `label` column used
-when training Bayes-MIL as well as a human-readable `label_name` column that
-matches the interpretability rule. The generator balances the slide labels so
-the minority class still covers at least 25% of the dataset, adding a couple of
-extra slides when required. Run the command again with a different `--task`
-value to create the other interpretability datasets independently. Refer to
+The command writes the expected `h5_files/`, metadata CSV file, and
+cross-validation splits for the requested task. The CSV exposes a numeric
+`label` column that follows the original rule set implemented by the
+`FourBagsDataset` class. Run the command again with a different `--dataset`
+value to create the other variants independently. Refer to
 [docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
 and example training commands.
 

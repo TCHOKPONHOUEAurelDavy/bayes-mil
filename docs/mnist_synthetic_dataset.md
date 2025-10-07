@@ -12,36 +12,28 @@ artifacts. The script downloads MNIST through `torchvision` on first use.
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
     --output-dir /path/to/mnist_mil_dataset \
-    --task mnist_fourbags --num-slides 200 --k-folds 5
+    --dataset mnist_fourbags --num-bags 200 --bag-size 12 --k-folds 5
 ```
 
 Key options:
 
-- `--task`: which interpretability dataset to generate. Run the script again with a
-  different task name to create the other variants independently.
-- `--num-slides`: target number of synthetic “slides” (bags) to create. The script
-  may append a few extra slides so that the minority class still represents at
-  least 25% of the final dataset.
-- `--min-patches` / `--max-patches`: range for the number of MNIST digits per slide.
+- `--dataset`: which task-specific dataset to generate. Run the script again with a
+  different name to create the other variants independently.
+- `--num-bags`: total number of synthetic “slides” (bags) to create.
+- `--bag-size`: number of MNIST digits placed inside each slide.
+- `--noise`: amount of Gaussian noise added to the raw pixel features.
+- `--sampling`: digit-sampling strategy passed to the dataset class (hierarchical,
+  uniform, or unique).
 - `--slides-per-case`: how many slides share the same case identifier.
-- `--k-folds`: number of cross-validation folds saved under `splits/<task>/`.
+- `--k-folds`: number of cross-validation folds saved under `splits/<dataset>/`.
 
 The directory will contain:
 
 - `h5_files/slide_xxxx.h5`: flattened MNIST pixels and 2-D coordinates for each bag.
-- `mnist_fourbags.csv`: labels for the digit-8/9 counting task.
-- `mnist_even_odd.csv`: labels for the even-versus-odd majority task.
-- `mnist_adjacent_pairs.csv`: labels for the adjacent-pair detection task.
-- `mnist_fourbags_plus.csv`: labels for the composite rule-based task.
-- Each CSV exposes a numeric `label` column used during training and a
-  human-readable `label_name` column that mirrors the original rule
-  descriptions.
-- `evidence/<task>/slide_xxxx.pt`: per-instance evidence and digit identities saved
-  for interpretability analyses.
+- `<dataset>.csv`: labels for the chosen task. The CSV exposes a numeric `label`
+  column that matches the original rule set implemented by the dataset class.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
-- `splits/<task>/`: cross-validation CSV files for every task.
-- The generator balances the dataset for the requested task so that the least
-  represented label still covers at least 25% of the slides.
+- `splits/<dataset>/`: cross-validation CSV files for the generated task.
 
 ## 2. Run the Bayes-MIL pipeline step by step
 
