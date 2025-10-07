@@ -12,25 +12,28 @@ artifacts. The script downloads MNIST through `torchvision` on first use.
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
     --output-dir /path/to/mnist_mil_dataset \
-    --num-slides 200 --k-folds 5
+    --dataset mnist_fourbags --num-bags 200 --bag-size 12 --k-folds 5
 ```
 
 Key options:
 
-- `--num-slides`: how many synthetic “slides” (bags) to create.
-- `--min-patches` / `--max-patches`: range for the number of MNIST digits per slide.
+- `--dataset`: which task-specific dataset to generate. Run the script again with a
+  different name to create the other variants independently.
+- `--num-bags`: total number of synthetic “slides” (bags) to create.
+- `--bag-size`: number of MNIST digits placed inside each slide.
+- `--noise`: amount of Gaussian noise added to the raw pixel features.
+- `--sampling`: digit-sampling strategy passed to the dataset class (hierarchical,
+  uniform, or unique).
 - `--slides-per-case`: how many slides share the same case identifier.
-- `--k-folds`: number of cross-validation folds saved under `splits/<task>/`.
+- `--k-folds`: number of cross-validation folds saved under `splits/<dataset>/`.
 
 The directory will contain:
 
 - `h5_files/slide_xxxx.h5`: flattened MNIST pixels and 2-D coordinates for each bag.
-- `mnist_binary.csv`: metadata for the binary task (`negative` vs `positive`).
-- `mnist_ternary.csv`: metadata for the ternary task (`low_digit`, `mid_digit`, `high_digit`).
+- `<dataset>.csv`: labels for the chosen task. The CSV exposes a numeric `label`
+  column that matches the original rule set implemented by the dataset class.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
-- `splits/mnist_binary/` and `splits/mnist_ternary/`: cross-validation CSV files.
-- The generator enforces that each binary and ternary label is represented (when the
-  requested number of slides allows for it), avoiding degenerate datasets lacking a class.
+- `splits/<dataset>/`: cross-validation CSV files for the generated task.
 
 ## 2. Run the Bayes-MIL pipeline step by step
 
@@ -43,14 +46,16 @@ the workflow explicit and modular.
 ```bash
 python examples/mnist_train.py \
     --dataset-root /path/to/mnist_mil_dataset \
-    --task mnist_binary \
+    --task mnist_fourbags \
     --exp-code mnist_demo \
     --k 5 --max-epochs 20 --lr 5e-4
 ```
 
 All flags map one-to-one to the arguments consumed by `main.py`, so you can add
 `--drop-out`, `--early-stopping`, or `--weighted-sample` as needed. The script
-writes checkpoints under `<results-dir>/<exp-code>_s<seed>/`.
+writes checkpoints under `<results-dir>/<exp-code>_s<seed>/`. Switch `--task` to
+`mnist_even_odd`, `mnist_adjacent_pairs`, or `mnist_fourbags_plus` to train on the
+other synthetic objectives without changing any other flags.
 
 ### 2.2 Evaluate
 
@@ -60,7 +65,7 @@ After training, evaluate the checkpoints with `eval.py` via:
 python examples/mnist_evaluate.py \
     --dataset-root /path/to/mnist_mil_dataset \
     --results-dir results \
-    --task mnist_binary \
+    --task mnist_fourbags \
     --exp-code mnist_demo \
     --k 5
 ```
@@ -78,7 +83,7 @@ the test set of one fold, run:
 python examples/mnist_save_heatmaps.py \
     --dataset-root /path/to/mnist_mil_dataset \
     --results-dir results \
-    --task mnist_binary \
+    --task mnist_fourbags \
     --exp-code mnist_demo \
     --fold 0 --split test
 ```
@@ -88,11 +93,10 @@ The script writes PNGs to
 `heatmap_summary.csv` with predicted labels. Use `--split val` or `--split train`
 to export other subsets, or `--split all` to process every slide contained in
 the descriptor CSV. Pass `--skip-existing` to avoid re-rendering PNGs that are
-already present. When working with the ternary task, rerun the training and
-evaluation helpers with `--task mnist_ternary` so that the checkpoint contains a
-three-class classifier. The heatmap export utility now validates that the
-selected checkpoint matches the requested task and raises a clear error if the
-class counts differ.
+already present. When switching between tasks, rerun the training and evaluation
+helpers with the matching `--task` flag so that the checkpoint and split
+metadata agree on the number of classes. The heatmap export utility validates
+this and raises a clear error if a mismatch is detected.
 
 ## 3. Troubleshooting
 
@@ -111,7 +115,7 @@ model and saves an attention overlay for one slide:
 python vis_utils/mnist_attention_heatmap.py \
     --dataset-root /path/to/mnist_mil_dataset \
     --checkpoint results/mnist_demo_s1/s_0_checkpoint.pt \
-    --task mnist_binary \
+    --task mnist_fourbags \
     --model-type bmil-vis \
     --slide-id slide_0000
 ```
@@ -124,7 +128,7 @@ switch to render an entire split directly from the utility:
 python vis_utils/mnist_attention_heatmap.py \
     --dataset-root /path/to/mnist_mil_dataset \
     --checkpoint results/mnist_demo_s1/s_0_checkpoint.pt \
-    --task mnist_binary \
+    --task mnist_fourbags \
     --model-type bmil-vis \
     --fold 0 --split test --all
 ```
