@@ -274,6 +274,114 @@ def save_splits(slides: Sequence[dict], task: str, k_folds: int, seed: int, outp
         )
 
 
+def generate_task_dataset(
+    slides: Sequence[Dict[str, Any]],
+    output_dir: str,
+    k_folds: int,
+    seed: int,
+    task_name: str,
+    metadata_fn: Callable[[torch.Tensor], EvidenceBundle],
+) -> List[TaskSlideExample]:
+    """Generate dataset artefacts for a single MNIST interpretability task."""
+
+    label_map = TASK_LABEL_MAPS[task_name]
+    evidence_dir = os.path.join(output_dir, "evidence", task_name)
+    ensure_directory(evidence_dir)
+
+    examples: List[TaskSlideExample] = []
+    for slide in slides:
+        numbers_tensor = torch.tensor(slide["numbers"], dtype=torch.long)
+        bundle = metadata_fn(numbers_tensor)
+        label = label_map.get(bundle.target)
+        if label is None:
+            raise KeyError(
+                f"Task {task_name} does not provide a label mapping for target {bundle.target}."
+            )
+
+        payload = bundle_to_dict(bundle, slide["numbers"], label)
+        torch.save(payload, os.path.join(evidence_dir, f"{slide['slide_id']}.pt"))
+
+        examples.append(
+            TaskSlideExample(
+                case_id=slide["case_id"],
+                slide_id=slide["slide_id"],
+                label=label,
+            )
+        )
+
+    df = pd.DataFrame(
+        {
+            "case_id": [example.case_id for example in examples],
+            "slide_id": [example.slide_id for example in examples],
+            "label": [example.label for example in examples],
+        }
+    )
+    df.to_csv(os.path.join(output_dir, f"{task_name}.csv"), index=False)
+
+    save_splits(
+        examples,
+        label_accessor=lambda example: example.label,
+        task_name=task_name,
+        output_dir=output_dir,
+        k_folds=k_folds,
+        rng=random.Random(seed),
+    )
+
+    return examples
+
+
+def generate_mnist_fourbags_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_fourbags",
+        TASK_METADATA_FNS["mnist_fourbags"],
+    )
+
+
+def generate_mnist_even_odd_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_even_odd",
+        TASK_METADATA_FNS["mnist_even_odd"],
+    )
+
+
+def generate_mnist_adjacent_pairs_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_adjacent_pairs",
+        TASK_METADATA_FNS["mnist_adjacent_pairs"],
+    )
+
+
+def generate_mnist_fourbags_plus_dataset(
+    slides: Sequence[Dict[str, Any]], output_dir: str, k_folds: int, seed: int
+) -> List[TaskSlideExample]:
+    return generate_task_dataset(
+        slides,
+        output_dir,
+        k_folds,
+        seed,
+        "mnist_fourbags_plus",
+        TASK_METADATA_FNS["mnist_fourbags_plus"],
+    )
+
+
 def main() -> None:
     args = parse_args()
     if not (0.0 < args.minority_fraction <= 0.5):
