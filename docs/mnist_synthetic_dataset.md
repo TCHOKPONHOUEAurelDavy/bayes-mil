@@ -39,6 +39,11 @@ The directory will contain:
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
 - `splits/<dataset>/`: cross-validation CSV files for the generated task.
 
+Generate each task in its own output directory. The helper reuses slide
+identifiers such as `slide_0005` across tasks and overwrites the existing HDF5
+patches, CSV, and split metadata when pointed at the same folder, so keeping the
+outputs separate avoids mixing slides from different datasets.
+
 ## 2. Run the Bayes-MIL pipeline step by step
 
 The following helpers mirror the manual commands usually issued against
@@ -117,9 +122,14 @@ python vis_utils/visualize_mnist_slide.py \
 ```
 
 If you omit `--output`, the PNG is written to
-`<dataset-root>/visualizations/<slide-id>.png`. Leaving out `--task` produces a
-title that lists every generated dataset; providing it restricts the caption to
-the requested task, which is useful when validating one dataset at a time.
+`<dataset-root>/visualizations/<slide-id>.png`. When you do not pass `--task`
+the helper loads every known task CSV in the dataset folder and appends each
+matching label to the figure title (e.g. `slide_0005 | fourbags: both |
+even-odd: even_majority`). In the usual workflow—one dataset per directory—only
+the CSV for the generated task exists, so the title still shows a single label.
+Supplying `--task` tells the script to ignore other CSV files, which is useful if
+you intentionally copy multiple datasets into the same directory for inspection
+and want to focus on one label at a time.
 
 ## 4. Troubleshooting
 
