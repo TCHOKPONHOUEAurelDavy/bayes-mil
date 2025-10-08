@@ -9,7 +9,7 @@ from models.model_bmil import bMIL_model_dict
 from models.model_bmil import  get_ard_reg_vdo
 
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, f1_score
 from sklearn.metrics import auc as calc_auc
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -403,11 +403,11 @@ def train(datasets, cur, args):
     else:
         torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
 
-    _, val_error, val_auc, val_ece_loss, _ = summary(model, val_loader, args.n_classes, bayes_args=bayes_args)
-    print('Val error: {:.4f}, ROC AUC: {:.4f}, ece loss : {:.4f}'.format(val_error, val_auc, val_ece_loss))
+    _, val_error, val_auc, val_ece_loss, val_f1, _ = summary(model, val_loader, args.n_classes, bayes_args=bayes_args)
+    print('Val error: {:.4f}, ROC AUC: {:.4f}, ece loss : {:.4f}, F1: {:.4f}'.format(val_error, val_auc, val_ece_loss, val_f1))
 
-    results_dict, test_error, test_auc, test_ece_loss, acc_logger = summary(model, test_loader, args.n_classes, bayes_args=bayes_args)
-    print('Test error: {:.4f}, ROC AUC: {:.4f}, ece loss : {:.4f}'.format(test_error, test_auc, test_ece_loss))
+    results_dict, test_error, test_auc, test_ece_loss, test_f1, acc_logger = summary(model, test_loader, args.n_classes, bayes_args=bayes_args)
+    print('Test error: {:.4f}, ROC AUC: {:.4f}, ece loss : {:.4f}, F1: {:.4f}'.format(test_error, test_auc, test_ece_loss, test_f1))
 
     for i in range(args.n_classes):
         acc, correct, count = acc_logger.get_summary(i)
@@ -420,11 +420,13 @@ def train(datasets, cur, args):
         writer.add_scalar('final/val_error', val_error, 0)
         writer.add_scalar('final/val_auc', val_auc, 0)
         writer.add_scalar('final/val_ece_loss', val_ece_loss, 0)
+        writer.add_scalar('final/val_f1', val_f1, 0)
         writer.add_scalar('final/test_error', test_error, 0)
         writer.add_scalar('final/test_auc', test_auc, 0)
         writer.add_scalar('final/test_ece_loss', test_ece_loss, 0)
+        writer.add_scalar('final/test_f1', test_f1, 0)
         writer.close()
-    return results_dict, test_auc, val_auc, 1 - test_error, 1 - val_error, test_ece_loss, val_ece_loss
+    return results_dict, test_auc, val_auc, 1 - test_error, 1 - val_error, test_ece_loss, val_ece_loss, test_f1, val_f1
 
 
 def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_fn = None, bayes_args=None):   
@@ -645,6 +647,7 @@ def summary(model, loader, n_classes, bayes_args=None):
 
     all_probs = np.zeros((len(loader), n_classes))
     all_labels = np.zeros(len(loader))
+    all_preds = np.zeros(len(loader))
 
     slide_ids = loader.dataset.slide_data['slide_id']
     patient_results = {}
@@ -666,6 +669,7 @@ def summary(model, loader, n_classes, bayes_args=None):
         probs = Y_prob.cpu().numpy()
         all_probs[batch_idx] = probs
         all_labels[batch_idx] = label.item()
+        all_preds[batch_idx] = Y_hat.item()
 
         patient_results.update({slide_id: {'slide_id': np.array(slide_id), 'prob': probs, 'label': label.item()}})
         error = calculate_error(Y_hat, label)
@@ -676,7 +680,6 @@ def summary(model, loader, n_classes, bayes_args=None):
 
     if n_classes == 2:
         auc = roc_auc_score(all_labels, all_probs[:, 1])
-        aucs = []
     else:
         aucs = []
         binary_labels = label_binarize(all_labels, classes=[i for i in range(n_classes)])
@@ -689,5 +692,13 @@ def summary(model, loader, n_classes, bayes_args=None):
 
         auc = np.nanmean(np.array(aucs))
 
-    return patient_results, test_error, auc, ece_loss, acc_logger
+    if len(np.unique(all_labels)) < 2:
+        f1 = 0.0
+    else:
+        if n_classes == 2:
+            f1 = f1_score(all_labels, all_preds, zero_division=0)
+        else:
+            f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+
+    return patient_results, test_error, auc, ece_loss, f1, acc_logger
 
