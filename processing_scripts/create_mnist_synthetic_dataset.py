@@ -143,6 +143,25 @@ def save_splits(
             split_root / f"splits_{fold_idx}_bool.csv", index=False
         )
 
+        wide = pd.DataFrame(
+            {
+                "train": pad(train_ids),
+                "val": pad(val_ids),
+                "test": pad(test_ids),
+            }
+        )
+        wide.to_csv(split_root / f"splits_{fold_idx}.csv", index=False)
+
+        bool_rows = []
+        for slide_id in train_ids:
+            bool_rows.append([slide_id, True, False, False])
+        for slide_id in val_ids:
+            bool_rows.append([slide_id, False, True, False])
+        for slide_id in test_ids:
+            bool_rows.append([slide_id, False, False, True])
+        pd.DataFrame(bool_rows, columns=["slide_id", "train", "val", "test"]).to_csv(
+            split_root / f"splits_{fold_idx}_bool.csv", index=False
+        )
         descriptor_rows = []
         for slide_id in train_ids:
             descriptor_rows.append(
