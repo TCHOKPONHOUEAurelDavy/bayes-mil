@@ -10,7 +10,7 @@ from models.model_bmil import get_ard_reg_vdo
 import pandas as pd
 from utils.utils import *
 from utils.core_utils import Accuracy_Logger, infer_bag_feature_dim
-from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.metrics import roc_auc_score, roc_curve, auc, f1_score
 from sklearn.preprocessing import label_binarize
 import matplotlib.pyplot as plt
 
@@ -56,10 +56,11 @@ def eval(dataset, args, ckpt_path):
 
     print('Init Loaders')
     loader = get_simple_loader(dataset)
-    patient_results, test_error, auc, df, _ = summary(model, loader, args, bayes_args)
+    patient_results, test_error, auc, f1, df, _ = summary(model, loader, args, bayes_args)
     print('test_error: ', test_error)
     print('auc: ', auc)
-    return model, patient_results, test_error, auc, df
+    print('f1: ', f1)
+    return model, patient_results, test_error, auc, f1, df
 
 def summary(model, loader, args, bayes_args):
     acc_logger = Accuracy_Logger(n_classes=args.n_classes)
@@ -101,6 +102,14 @@ def summary(model, loader, args, bayes_args):
     del data
     test_error /= len(loader)
 
+    if len(np.unique(all_labels)) < 2:
+        f1 = 0.0
+    else:
+        if args.n_classes == 2:
+            f1 = f1_score(all_labels, all_preds, zero_division=0)
+        else:
+            f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+
     aucs = []
     if len(np.unique(all_labels)) == 1:
         auc_score = -1
@@ -127,4 +136,4 @@ def summary(model, loader, args, bayes_args):
     for c in range(args.n_classes):
         results_dict.update({'p_{}'.format(c): all_probs[:,c]})
     df = pd.DataFrame(results_dict)
-    return patient_results, test_error, auc_score, df, acc_logger
+    return patient_results, test_error, auc_score, f1, df, acc_logger
