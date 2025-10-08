@@ -45,13 +45,15 @@ generate a toy dataset derived from MNIST:
 
 ```bash
 python processing_scripts/create_mnist_synthetic_dataset.py \
-    --output-dir /path/to/mnist_mil_dataset
+    --output-dir /path/to/mnist_mil_dataset \
+    --dataset mnist_fourbags
 ```
 
-The command writes the expected `h5_files/`, metadata CSV files, and cross-validation
-splits. The generator also balances the binary (`positive`/`negative`) and ternary
-(`low_digit`/`mid_digit`/`high_digit`) labels whenever possible so that each class is
-present in the resulting metadata. Refer to
+The command writes the expected `h5_files/`, metadata CSV file, and
+cross-validation splits for the requested task. The CSV exposes a numeric
+`label` column that follows the original rule set implemented by the
+`FourBagsDataset` class. Run the command again with a different `--dataset`
+value to create the other variants independently. Refer to
 [docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
 and example training commands.
 
