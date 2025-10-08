@@ -7,7 +7,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +20,30 @@ import pandas as pd
 import torch
 
 from processing_scripts.mnist_number_datasets import DATASET_CLASSES
+
+
+LABEL_NAMES = {
+    "mnist_fourbags": {
+        0: "none",
+        1: "mostly_eight",
+        2: "mostly_nine",
+        3: "both",
+    },
+    "mnist_even_odd": {
+        0: "odd_majority",
+        1: "even_majority",
+    },
+    "mnist_adjacent_pairs": {
+        0: "no_adjacent_pairs",
+        1: "has_adjacent_pairs",
+    },
+    "mnist_fourbags_plus": {
+        0: "none",
+        1: "three_five",
+        2: "one_only",
+        3: "one_and_seven",
+    },
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,6 +131,7 @@ def save_splits(
     ensure_dir(split_root)
 
     label_lookup = {slide["slide_id"]: slide["label"] for slide in slides}
+    label_name_lookup = {slide["slide_id"]: slide["label_name"] for slide in slides}
     case_lookup = {slide["slide_id"]: slide["case_id"] for slide in slides}
 
     for fold_idx in range(k_folds):
@@ -170,6 +195,7 @@ def save_splits(
                     "split": "train",
                     "label": label_lookup[slide_id],
                     "case_id": case_lookup[slide_id],
+                    "label_name": label_name_lookup[slide_id],
                 }
             )
         for slide_id in val_ids:
@@ -179,6 +205,7 @@ def save_splits(
                     "split": "val",
                     "label": label_lookup[slide_id],
                     "case_id": case_lookup[slide_id],
+                    "label_name": label_name_lookup[slide_id],
                 }
             )
         for slide_id in test_ids:
@@ -188,6 +215,7 @@ def save_splits(
                     "split": "test",
                     "label": label_lookup[slide_id],
                     "case_id": case_lookup[slide_id],
+                    "label_name": label_name_lookup[slide_id],
                 }
             )
         pd.DataFrame(descriptor_rows).to_csv(
@@ -223,7 +251,7 @@ def main() -> None:
         shape_file.unlink()
 
     csv_path = output_dir / f"{args.dataset}.csv"
-    slides: List[Dict[str, str]] = []
+    slides: List[Dict[str, Any]] = []
 
     for index in range(len(dataset)):
         item = dataset[index]
@@ -237,11 +265,13 @@ def main() -> None:
         append_shape(shape_file, slide_id, coords)
 
         label = int(item["targets"].item())
+        label_name = LABEL_NAMES[args.dataset][label]
         slides.append(
             {
                 "case_id": case_id,
                 "slide_id": slide_id,
                 "label": label,
+                "label_name": label_name,
             }
         )
 

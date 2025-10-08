@@ -209,14 +209,17 @@ elif args.task == 'mnist_fourbags':
         raise ValueError('mnist_fourbags requires --data_root_dir pointing to the generated dataset directory')
     args.n_classes = 4
     csv_path = os.path.join(args.data_root_dir, 'mnist_fourbags.csv')
-    dataset = Generic_MIL_Dataset(csv_path=csv_path,
-                            data_dir=os.path.join(args.data_root_dir, ''),
-                            shuffle=False,
-                            seed=args.seed,
-                            print_info=True,
-                            label_dict={'none': 0, 'mostly_eight': 1, 'mostly_nine': 2, 'both': 3},
-                            patient_strat=False,
-                            ignore=[])
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        seed=args.seed,
+        print_info=True,
+        label_dict={'none': 0, 'mostly_eight': 1, 'mostly_nine': 2, 'both': 3},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
+    )
     if 'convis' in args.model_type or 'spvis' in args.model_type:
         dataset.load_from_h5(True)
 
@@ -225,14 +228,17 @@ elif args.task == 'mnist_even_odd':
         raise ValueError('mnist_even_odd requires --data_root_dir pointing to the generated dataset directory')
     args.n_classes = 2
     csv_path = os.path.join(args.data_root_dir, 'mnist_even_odd.csv')
-    dataset = Generic_MIL_Dataset(csv_path=csv_path,
-                            data_dir=os.path.join(args.data_root_dir, ''),
-                            shuffle=False,
-                            seed=args.seed,
-                            print_info=True,
-                            label_dict={'odd_majority': 0, 'even_majority': 1},
-                            patient_strat=False,
-                            ignore=[])
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        seed=args.seed,
+        print_info=True,
+        label_dict={'odd_majority': 0, 'even_majority': 1},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
+    )
     if 'convis' in args.model_type or 'spvis' in args.model_type:
         dataset.load_from_h5(True)
 
@@ -241,14 +247,17 @@ elif args.task == 'mnist_adjacent_pairs':
         raise ValueError('mnist_adjacent_pairs requires --data_root_dir pointing to the generated dataset directory')
     args.n_classes = 2
     csv_path = os.path.join(args.data_root_dir, 'mnist_adjacent_pairs.csv')
-    dataset = Generic_MIL_Dataset(csv_path=csv_path,
-                            data_dir=os.path.join(args.data_root_dir, ''),
-                            shuffle=False,
-                            seed=args.seed,
-                            print_info=True,
-                            label_dict={'no_adjacent_pairs': 0, 'has_adjacent_pairs': 1},
-                            patient_strat=False,
-                            ignore=[])
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        seed=args.seed,
+        print_info=True,
+        label_dict={'no_adjacent_pairs': 0, 'has_adjacent_pairs': 1},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
+    )
     if 'convis' in args.model_type or 'spvis' in args.model_type:
         dataset.load_from_h5(True)
 
@@ -257,14 +266,17 @@ elif args.task == 'mnist_fourbags_plus':
         raise ValueError('mnist_fourbags_plus requires --data_root_dir pointing to the generated dataset directory')
     args.n_classes = 4
     csv_path = os.path.join(args.data_root_dir, 'mnist_fourbags_plus.csv')
-    dataset = Generic_MIL_Dataset(csv_path=csv_path,
-                            data_dir=os.path.join(args.data_root_dir, ''),
-                            shuffle=False,
-                            seed=args.seed,
-                            print_info=True,
-                            label_dict={'none': 0, 'three_five': 1, 'one_only': 2, 'one_and_seven': 3},
-                            patient_strat=False,
-                            ignore=[])
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        seed=args.seed,
+        print_info=True,
+        label_dict={'none': 0, 'three_five': 1, 'one_only': 2, 'one_and_seven': 3},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
+    )
     if 'convis' in args.model_type or 'spvis' in args.model_type:
         dataset.load_from_h5(True)
 

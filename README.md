@@ -51,9 +51,10 @@ python processing_scripts/create_mnist_synthetic_dataset.py \
 
 The command writes the expected `h5_files/`, metadata CSV file, and
 cross-validation splits for the requested task. The CSV exposes a numeric
-`label` column that follows the original rule set implemented by the
-`FourBagsDataset` class. Run the command again with a different `--dataset`
-value to create the other variants independently. Refer to
+`label` column alongside a human-readable `label_name` column that follow the
+original rule set implemented by the `FourBagsDataset` class. Run the command
+again with a different `--dataset` value to create the other variants
+independently. Refer to
 [docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
 and example training commands.
 

@@ -119,6 +119,7 @@ elif args.task == 'mnist_fourbags':
         label_dict={'none': 0, 'mostly_eight': 1, 'mostly_nine': 2, 'both': 3},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
     )
 
 elif args.task == 'mnist_even_odd':
@@ -134,6 +135,7 @@ elif args.task == 'mnist_even_odd':
         label_dict={'odd_majority': 0, 'even_majority': 1},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
     )
 
 elif args.task == 'mnist_adjacent_pairs':
@@ -149,6 +151,7 @@ elif args.task == 'mnist_adjacent_pairs':
         label_dict={'no_adjacent_pairs': 0, 'has_adjacent_pairs': 1},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
     )
 
 elif args.task == 'mnist_fourbags_plus':
@@ -164,6 +167,7 @@ elif args.task == 'mnist_fourbags_plus':
         label_dict={'none': 0, 'three_five': 1, 'one_only': 2, 'one_and_seven': 3},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
     )
 
 else:

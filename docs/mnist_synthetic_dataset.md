@@ -35,7 +35,8 @@ The directory will contain:
 
 - `h5_files/slide_xxxx.h5`: flattened MNIST pixels and 2-D coordinates for each bag.
 - `<dataset>.csv`: labels for the chosen task. The CSV exposes a numeric `label`
-  column that matches the original rule set implemented by the dataset class.
+  column and a human-readable `label_name` column, both consistent with the
+  original rule set implemented by the dataset class.
 - `images_shape.txt`: synthetic canvas sizes used when reconstructing spatial maps.
 - `splits/<dataset>/`: cross-validation CSV files for the generated task.
 
@@ -124,7 +125,7 @@ python vis_utils/visualize_mnist_slide.py \
 If you omit `--output`, the PNG is written to
 `<dataset-root>/visualizations/<slide-id>.png`. When you do not pass `--task`
 the helper loads every known task CSV in the dataset folder and appends each
-matching label to the figure title (e.g. `slide_0005 | fourbags: both |
+matching label name to the figure title (e.g. `slide_0005 | fourbags: both |
 even-odd: even_majority`). In the usual workflow—one dataset per directory—only
 the CSV for the generated task exists, so the title still shows a single label.
 Supplying `--task` tells the script to ignore other CSV files, which is useful if
