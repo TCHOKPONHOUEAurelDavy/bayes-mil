@@ -25,7 +25,16 @@ def parse_args() -> argparse.Namespace:
         description='Save attention heatmaps for every slide in a MNIST split.',
     )
     parser.add_argument('--dataset-root', type=Path, required=True)
-    parser.add_argument('--task', choices=('mnist_binary', 'mnist_ternary'), default='mnist_binary')
+    parser.add_argument(
+        '--task',
+        choices=(
+            'mnist_fourbags',
+            'mnist_even_odd',
+            'mnist_adjacent_pairs',
+            'mnist_fourbags_plus',
+        ),
+        default='mnist_fourbags',
+    )
     parser.add_argument('--results-dir', type=Path, required=True)
     parser.add_argument('--exp-code', type=str, required=True, help='Experiment identifier used during training.')
     parser.add_argument('--seed', type=int, default=1)

@@ -47,8 +47,10 @@ parser.add_argument(
     choices=[
         'task_1_tumor_vs_normal',
         'task_2_tumor_subtyping',
-        'mnist_binary',
-        'mnist_ternary',
+        'mnist_fourbags',
+        'mnist_even_odd',
+        'mnist_adjacent_pairs',
+        'mnist_fourbags_plus',
     ],
 )
 args = parser.parse_args()
@@ -61,7 +63,7 @@ args.models_dir = os.path.join(args.results_dir, str(args.models_exp_code))
 os.makedirs(args.save_dir, exist_ok=True)
 
 if args.splits_dir is None:
-    if args.task in ['mnist_binary', 'mnist_ternary']:
+    if args.task in ['mnist_fourbags', 'mnist_even_odd', 'mnist_adjacent_pairs', 'mnist_fourbags_plus']:
         if args.data_root_dir is None:
             raise ValueError('MNIST evaluation requires --data_root_dir pointing to the dataset root')
         args.splits_dir = os.path.join(args.data_root_dir, 'splits', args.task)
@@ -104,34 +106,68 @@ elif args.task == 'task_2_tumor_subtyping':
                             patient_strat= False,
                             ignore=[])
 
-elif args.task == 'mnist_binary':
+elif args.task == 'mnist_fourbags':
     if args.data_root_dir is None:
-        raise ValueError('mnist_binary requires --data_root_dir pointing to the generated dataset directory')
-    args.n_classes = 2
-    csv_path = os.path.join(args.data_root_dir, 'mnist_binary.csv')
+        raise ValueError('mnist_fourbags requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 4
+    csv_path = os.path.join(args.data_root_dir, 'mnist_fourbags.csv')
     dataset = Generic_MIL_Dataset(
         csv_path=csv_path,
         data_dir=os.path.join(args.data_root_dir, ''),
         shuffle=False,
         print_info=True,
-        label_dict={'negative': 0, 'positive': 1},
+        label_dict={'none': 0, 'mostly_eight': 1, 'mostly_nine': 2, 'both': 3},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
     )
 
-elif args.task == 'mnist_ternary':
+elif args.task == 'mnist_even_odd':
     if args.data_root_dir is None:
-        raise ValueError('mnist_ternary requires --data_root_dir pointing to the generated dataset directory')
-    args.n_classes = 3
-    csv_path = os.path.join(args.data_root_dir, 'mnist_ternary.csv')
+        raise ValueError('mnist_even_odd requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 2
+    csv_path = os.path.join(args.data_root_dir, 'mnist_even_odd.csv')
     dataset = Generic_MIL_Dataset(
         csv_path=csv_path,
         data_dir=os.path.join(args.data_root_dir, ''),
         shuffle=False,
         print_info=True,
-        label_dict={'low_digit': 0, 'mid_digit': 1, 'high_digit': 2},
+        label_dict={'odd_majority': 0, 'even_majority': 1},
         patient_strat=False,
         ignore=[],
+        label_col='label_name',
+    )
+
+elif args.task == 'mnist_adjacent_pairs':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_adjacent_pairs requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 2
+    csv_path = os.path.join(args.data_root_dir, 'mnist_adjacent_pairs.csv')
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        print_info=True,
+        label_dict={'no_adjacent_pairs': 0, 'has_adjacent_pairs': 1},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
+    )
+
+elif args.task == 'mnist_fourbags_plus':
+    if args.data_root_dir is None:
+        raise ValueError('mnist_fourbags_plus requires --data_root_dir pointing to the generated dataset directory')
+    args.n_classes = 4
+    csv_path = os.path.join(args.data_root_dir, 'mnist_fourbags_plus.csv')
+    dataset = Generic_MIL_Dataset(
+        csv_path=csv_path,
+        data_dir=os.path.join(args.data_root_dir, ''),
+        shuffle=False,
+        print_info=True,
+        label_dict={'none': 0, 'three_five': 1, 'one_only': 2, 'one_and_seven': 3},
+        patient_strat=False,
+        ignore=[],
+        label_col='label_name',
     )
 
 else:

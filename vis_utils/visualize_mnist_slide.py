@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 import h5py
 import matplotlib.pyplot as plt
@@ -32,13 +32,38 @@ import pandas as pd
 
 PATCH_PIXELS = 28
 
+TASK_TO_CSV: Dict[str, str] = {
+    "mnist_fourbags": "mnist_fourbags.csv",
+    "mnist_even_odd": "mnist_even_odd.csv",
+    "mnist_adjacent_pairs": "mnist_adjacent_pairs.csv",
+    "mnist_fourbags_plus": "mnist_fourbags_plus.csv",
+}
+
+TASK_DISPLAY_NAMES: Dict[str, str] = {
+    "mnist_fourbags": "fourbags",
+    "mnist_even_odd": "even-odd",
+    "mnist_adjacent_pairs": "adjacent",
+    "mnist_fourbags_plus": "fourbags+",
+}
+
+TASK_LABEL_NAMES: Dict[str, Dict[int, str]] = {
+    "mnist_fourbags": {0: "none", 1: "mostly_eight", 2: "mostly_nine", 3: "both"},
+    "mnist_even_odd": {0: "odd_majority", 1: "even_majority"},
+    "mnist_adjacent_pairs": {0: "no_adjacent_pairs", 1: "has_adjacent_pairs"},
+    "mnist_fourbags_plus": {
+        0: "none",
+        1: "three_five",
+        2: "one_only",
+        3: "one_and_seven",
+    },
+}
+
 
 @dataclass(frozen=True)
 class SlideLabels:
-    """Container for the binary and ternary labels tied to a slide."""
+    """Container for the task-specific labels tied to a slide."""
 
-    binary: Optional[str]
-    ternary: Optional[str]
+    values: Dict[str, Optional[str]]
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +81,16 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Identifier of the slide to visualize (e.g. slide_0001).",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        choices=sorted(TASK_TO_CSV.keys()),
+        default=None,
+        help=(
+            "Name of the interpretability task whose label should be displayed. "
+            "Defaults to showing every task found for the slide."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -100,19 +135,41 @@ def load_slide_arrays(dataset_root: str, slide_id: str) -> tuple[np.ndarray, np.
     return features.astype(np.float32), coords.astype(np.int32)
 
 
-def load_labels(dataset_root: str, slide_id: str) -> SlideLabels:
-    def _read_label(csv_name: str) -> Optional[str]:
+def load_labels(
+    dataset_root: str, slide_id: str, task_filter: Optional[str] = None
+) -> SlideLabels:
+    def _read_label(task: str, csv_name: str) -> Optional[str]:
         csv_path = os.path.join(dataset_root, csv_name)
         if not os.path.exists(csv_path):
             return None
         frame = pd.read_csv(csv_path)
-        matches = frame.loc[frame["slide_id"] == slide_id, "label"]
-        return matches.iloc[0] if not matches.empty else None
+        if "slide_id" not in frame.columns:
+            return None
+        row = frame.loc[frame["slide_id"] == slide_id]
+        if row.empty:
+            return None
+        if "label_name" in frame.columns:
+            value = row.iloc[0]["label_name"]
+            return None if pd.isna(value) else str(value)
+        if "label" not in frame.columns:
+            return None
+        value = row.iloc[0]["label"]
+        if pd.isna(value):
+            return None
+        if pd.api.types.is_numeric_dtype(frame["label"]):
+            label_map = TASK_LABEL_NAMES.get(task)
+            return label_map.get(int(value), str(value)) if label_map else str(value)
+        return str(value)
 
-    return SlideLabels(
-        binary=_read_label("mnist_binary.csv"),
-        ternary=_read_label("mnist_ternary.csv"),
+    values: Dict[str, Optional[str]] = {}
+    tasks = (
+        {task_filter: TASK_TO_CSV[task_filter]}
+        if task_filter is not None
+        else TASK_TO_CSV
     )
+    for task, csv_name in tasks.items():
+        values[task] = _read_label(task, csv_name)
+    return SlideLabels(values=values)
 
 
 def reconstruct_canvas(features: np.ndarray, coords: np.ndarray) -> np.ndarray:
@@ -128,10 +185,11 @@ def reconstruct_canvas(features: np.ndarray, coords: np.ndarray) -> np.ndarray:
 
 def format_title(slide_id: str, labels: SlideLabels) -> str:
     parts = [slide_id]
-    if labels.binary is not None:
-        parts.append(f"binary: {labels.binary}")
-    if labels.ternary is not None:
-        parts.append(f"ternary: {labels.ternary}")
+    for task in sorted(labels.values.keys()):
+        value = labels.values[task]
+        if value is not None:
+            display = TASK_DISPLAY_NAMES.get(task, task)
+            parts.append(f"{display}: {value}")
     return " | ".join(parts)
 
 
@@ -150,7 +208,7 @@ def main() -> None:
     output_path = args.output or default_output_path(args.dataset_root, args.slide_id)
 
     features, coords = load_slide_arrays(args.dataset_root, args.slide_id)
-    labels = load_labels(args.dataset_root, args.slide_id)
+    labels = load_labels(args.dataset_root, args.slide_id, task_filter=args.task)
     canvas = reconstruct_canvas(features, coords)
     title = format_title(args.slide_id, labels)
     save_figure(canvas, output_path, title, dpi=args.dpi)
