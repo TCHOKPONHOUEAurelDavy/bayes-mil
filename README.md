@@ -99,12 +99,16 @@ For training, look under `models/model_bmil.py`:
 ```bash
 bMIL_model_dict = {
                     'vis': probabilistic_MIL_Bayes_vis,
+                    'addvis': probabilistic_Additive_MIL_Bayes_vis,
+                    'conjvis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'enc': probabilistic_MIL_Bayes_enc,
-                    'spvis': probabilistic_MIL_Bayes_spvis,          
+                    'spvis': probabilistic_MIL_Bayes_spvis,
 }
 ```
->📋 Update `--model_type` to the corresponding model. 
+>📋 Update `--model_type` to the corresponding model.
 * `bmil-vis`: Bayes-MIL-Vis
+* `bmil-addvis`: Additive Bayes-MIL-Vis
+* `bmil-conjvis`: Conjunctive Bayes-MIL-Vis
 * `bmil-enc`: Bayes-MIL-SDPR
 * `bmil-spvis`: Bayes-MIL-APCRF
 
