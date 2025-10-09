@@ -46,7 +46,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--dataset-root', type=Path, required=True)
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--task', choices=tuple(LABEL_DICTS.keys()), default='mnist_fourbags')
-    parser.add_argument('--model-type', choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis')
+    parser.add_argument(
+        '--model-type',
+        choices=['bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis', 'bmil-enc', 'bmil-spvis'],
+        default='bmil-vis',
+    )
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')
     parser.add_argument('--drop-out', action='store_true', help='Set when the checkpoint was trained with dropout enabled.')
     parser.add_argument('--alpha', type=float, default=0.55, help='Opacity of the attention overlay (default: %(default)s).')

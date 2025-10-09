@@ -30,7 +30,7 @@ parser.add_argument('--splits_dir', type=str, default=None,
                     help='splits directory, if using custom splits other than what matches the task (default: None)')
 parser.add_argument('--model_size', type=str, choices=['small', 'big'], default='small', 
                     help='size of model (default: small)')
-parser.add_argument('--model_type', type=str, choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis', 
+parser.add_argument('--model_type', type=str, choices=['bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis',
                     help='type of model (default: bmil-vis)')
 parser.add_argument('--drop_out', action='store_true', default=False, 
                     help='whether model uses dropout')

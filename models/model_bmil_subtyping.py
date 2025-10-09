@@ -235,6 +235,123 @@ class probabilistic_MIL_Bayes_vis(nn.Module):
         #     results_dict.update({'features': top_features})
         return top_instance, Y_prob, Y_hat, y_probs, A
 
+
+class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+
+        fc = [nn.Linear(self.input_dim, size[1]), nn.ReLU()]
+        if dropout:
+            fc.append(nn.Dropout(0.25))
+
+        attention_net = Attn_Net_Gated(L=size[1], D=size[2], dropout=dropout, n_classes=2) if gate \
+                        else Attn_Net(L=size[1], D=size[2], dropout=dropout, n_classes=2)
+        fc.append(attention_net)
+        self.attention_net = nn.Sequential(*fc)
+
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+        self.n_classes = n_classes
+        self.top_k = top_k
+
+        self.temperature = torch.tensor([1.0])
+        initialize_weights(self)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def relocate(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.attention_net = self.attention_net.to(device)
+        self.classifiers = self.classifiers.to(device)
+        self.temperature = self.temperature.to(device)
+
+    def forward(self, h, validation=False):
+        A_param, h = self.attention_net(h)
+        mu, logvar = A_param[:, 0], A_param[:, 1]
+
+        gaus = self.reparameterize(mu, logvar)
+        alpha = torch.sigmoid(gaus)
+        A = alpha.unsqueeze(0)
+
+        attended = h * alpha.unsqueeze(1)
+        inst_logits = self.classifiers(attended)
+        logits = inst_logits.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim=1)
+
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1, )
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim=1)[1]
+        Y_prob = F.softmax(top_instance, dim=1)
+
+        return top_instance, Y_prob, Y_hat, y_probs, A
+
+
+class probabilistic_Conjunctive_MIL_Bayes_vis(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+
+        fc = [nn.Linear(self.input_dim, size[1]), nn.ReLU()]
+        if dropout:
+            fc.append(nn.Dropout(0.25))
+
+        attention_net = Attn_Net_Gated(L=size[1], D=size[2], dropout=dropout, n_classes=2) if gate \
+                        else Attn_Net(L=size[1], D=size[2], dropout=dropout, n_classes=2)
+        fc.append(attention_net)
+        self.attention_net = nn.Sequential(*fc)
+
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+        self.n_classes = n_classes
+        self.top_k = top_k
+
+        self.temperature = torch.tensor([1.0])
+        initialize_weights(self)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def relocate(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.attention_net = self.attention_net.to(device)
+        self.classifiers = self.classifiers.to(device)
+        self.temperature = self.temperature.to(device)
+
+    def forward(self, h, validation=False):
+        A_param, h = self.attention_net(h)
+        mu, logvar = A_param[:, 0], A_param[:, 1]
+
+        gaus = self.reparameterize(mu, logvar)
+        alpha = torch.sigmoid(gaus)
+        A = alpha.unsqueeze(0)
+
+        inst_logits = self.classifiers(h)
+        contrib = alpha.unsqueeze(1) * inst_logits
+        logits = contrib.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim=1)
+
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1, )
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim=1)[1]
+        Y_prob = F.softmax(top_instance, dim=1)
+
+        return top_instance, Y_prob, Y_hat, y_probs, A
+
+
 class probabilistic_MIL_Bayes_enc(nn.Module):
     def __init__(self, gate = True, size_arg = "small", dropout = False, n_classes=2, top_k=1, input_dim=None):
         super(probabilistic_MIL_Bayes_enc, self).__init__()
@@ -458,6 +575,9 @@ def get_ard_reg_vdo(module, reg=0):
 
 bMIL_model_dict = {
                     'vis': probabilistic_MIL_Bayes_vis,
+                    'addvis': probabilistic_Additive_MIL_Bayes_vis,
+                    'conjvis': probabilistic_Conjunctive_MIL_Bayes_vis,
+                    'convis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'enc': probabilistic_MIL_Bayes_enc,
-                    'spvis': probabilistic_MIL_Bayes_spvis,          
+                    'spvis': probabilistic_MIL_Bayes_spvis,
 }
