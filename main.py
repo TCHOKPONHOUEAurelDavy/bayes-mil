@@ -116,7 +116,9 @@ parser.add_argument('--bag_loss', type=str, choices=['svm', 'ce'], default='ce',
                      help='slide-level classification loss function (default: ce)')
 parser.add_argument('--model_type', type=str, choices=['clam_sb', 'clam_mb', 'mil', 'msa', 'pmil-V',
                                                         'pmil-C', 'pmil-N',
-                                                        'bmil-A', 'bmil-F', 'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis', 'bmil-spvis',
+                                                        'bmil-A', 'bmil-F', 'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+                                                        'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+                                                        'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
                                                         'bmil-enc', 'mil_baens', 'hmil', 'smil-D'],
                     default='clam_sb', help='type of model (default: clam_sb, clam w/ single attention branch)')
 parser.add_argument('--exp_code', type=str, help='experiment code for saving results')

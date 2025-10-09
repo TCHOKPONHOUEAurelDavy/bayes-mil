@@ -41,7 +41,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--fold', type=int, default=0)
     parser.add_argument(
         '--model-type',
-        choices=['bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis', 'bmil-enc', 'bmil-spvis'],
+        choices=[
+            'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+            'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+            'bmil-enc', 'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
+        ],
         default='bmil-vis',
     )
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')

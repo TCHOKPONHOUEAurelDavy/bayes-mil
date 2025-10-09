@@ -444,6 +444,160 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
             return top_instance, Y_prob, Y_hat, y_probs, A
 
 
+class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+        first_transform = nn.Linear(self.input_dim, size[1])
+        fc1 = [first_transform, nn.ReLU()]
+
+        if dropout:
+            fc1.append(nn.Dropout(0.25))
+
+        postr_net = Attn_Net_Gated(L=size[1], D=size[2], dropout=dropout, n_classes=2) if gate \
+                    else Attn_Net(L=size[1], D=size[2], dropout=dropout, n_classes=2)
+        fc1.append(postr_net)
+
+        self.postr_net = nn.Sequential(*fc1)
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+
+        self.n_classes = n_classes
+        self.top_k = top_k
+        self.temperature = torch.tensor([1.0])
+        self.prior_mu = torch.tensor([3., 3., 3., 3.])
+        self.prior_logvar = torch.tensor([5., 5., 5., 5.])
+
+        initialize_weights(self)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def kl_logistic_normal(self, mu_pr, mu_pos, logvar_pr, logvar_pos):
+        return (logvar_pr - logvar_pos) / 2. + (logvar_pos ** 2 + (mu_pr - mu_pos) ** 2) / (2. * logvar_pr ** 2) -0.5
+
+    def relocate(self):
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.postr_net = self.postr_net.to(device)
+        self.classifiers = self.classifiers.to(device)
+        self.temperature = self.temperature.to(device)
+        self.prior_mu = self.prior_mu.to(device)
+        self.prior_logvar = self.prior_logvar.to(device)
+
+    def forward(self, h, return_features=False, slide_label=None, validation=False):
+        param, h_proj = self.postr_net(h)
+
+        mu = param[:, 0]
+        logvar = param[:, 1]
+        gaus_samples = self.reparameterize(mu, logvar)
+        alpha = torch.sigmoid(gaus_samples)
+        A = alpha.unsqueeze(0)
+
+        if not validation:
+            mu_pr = self.prior_mu[slide_label.item()].expand(h.shape[0])
+            logvar_pr = self.prior_logvar[slide_label.item()]
+            kl_div = self.kl_logistic_normal(mu_pr, mu, logvar_pr, logvar)
+        else:
+            kl_div = None
+
+        attended = alpha.unsqueeze(1) * h_proj
+        inst_logits = self.classifiers(attended)
+        logits = inst_logits.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim = 1)
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1,)
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim = 1)[1]
+        Y_prob = F.softmax(top_instance, dim = 1)
+
+        if not validation:
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, A
+        else:
+            return top_instance, Y_prob, Y_hat, y_probs, A
+
+
+class probabilistic_Conjunctive_MIL_Bayes_enc(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+        first_transform = nn.Linear(self.input_dim, size[1])
+        fc1 = [first_transform, nn.ReLU()]
+
+        if dropout:
+            fc1.append(nn.Dropout(0.25))
+
+        postr_net = Attn_Net_Gated(L=size[1], D=size[2], dropout=dropout, n_classes=2) if gate \
+                    else Attn_Net(L=size[1], D=size[2], dropout=dropout, n_classes=2)
+        fc1.append(postr_net)
+
+        self.postr_net = nn.Sequential(*fc1)
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+
+        self.n_classes = n_classes
+        self.top_k = top_k
+        self.temperature = torch.tensor([1.0])
+        self.prior_mu = torch.tensor([3., 3., 3., 3.])
+        self.prior_logvar = torch.tensor([5., 5., 5., 5.])
+
+        initialize_weights(self)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def kl_logistic_normal(self, mu_pr, mu_pos, logvar_pr, logvar_pos):
+        return (logvar_pr - logvar_pos) / 2. + (logvar_pos ** 2 + (mu_pr - mu_pos) ** 2) / (2. * logvar_pr ** 2) -0.5
+
+    def relocate(self):
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.postr_net = self.postr_net.to(device)
+        self.classifiers = self.classifiers.to(device)
+        self.temperature = self.temperature.to(device)
+        self.prior_mu = self.prior_mu.to(device)
+        self.prior_logvar = self.prior_logvar.to(device)
+
+    def forward(self, h, return_features=False, slide_label=None, validation=False):
+        param, h_proj = self.postr_net(h)
+
+        mu = param[:, 0]
+        logvar = param[:, 1]
+        gaus_samples = self.reparameterize(mu, logvar)
+        alpha = torch.sigmoid(gaus_samples)
+        A = alpha.unsqueeze(0)
+
+        if not validation:
+            mu_pr = self.prior_mu[slide_label.item()].expand(h.shape[0])
+            logvar_pr = self.prior_logvar[slide_label.item()]
+            kl_div = self.kl_logistic_normal(mu_pr, mu, logvar_pr, logvar)
+        else:
+            kl_div = None
+
+        inst_logits = self.classifiers(h_proj)
+        contrib = alpha.unsqueeze(1) * inst_logits
+        logits = contrib.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim = 1)
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1,)
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim = 1)[1]
+        Y_prob = F.softmax(top_instance, dim = 1)
+
+        if not validation:
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, A
+        else:
+            return top_instance, Y_prob, Y_hat, y_probs, A
+
+
 PATCH_SIZE = 256
 
 class probabilistic_MIL_Bayes_spvis(nn.Module):
@@ -563,6 +717,246 @@ class probabilistic_MIL_Bayes_spvis(nn.Module):
             return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
         else:
             return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
+
+
+class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+
+        ard_init = -4.
+        self.linear1 = nn.Linear(self.input_dim, size[1])
+        self.linear2a = LinearVDO(size[1], size[2], ard_init=ard_init)
+        self.linear2b = LinearVDO(size[1], size[2], ard_init=ard_init)
+        self.linear3 = LinearVDO(size[2], 2, ard_init=ard_init)
+
+        self.gaus_smoothing = GaussianSmoothing(1, 3, 0.5)
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+
+        self.dp_0 = nn.Dropout(0.25)
+        self.dp_a = nn.Dropout(0.25)
+        self.dp_b = nn.Dropout(0.25)
+
+        self.prior_mu = torch.tensor([3., 3., 3., 3.])
+        self.prior_logvar = torch.tensor([5., 5., 5., 5.])
+
+        initialize_weights(self)
+        self.top_k = top_k
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def kl_logistic_normal(self, mu_pr, mu_pos, logvar_pr, logvar_pos):
+        return (logvar_pr - logvar_pos) / 2. + (logvar_pos ** 2 + (mu_pr - mu_pos) ** 2) / (2. * logvar_pr ** 2) - 0.5
+
+    def relocate(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.linear1 = self.linear1.to(device)
+        self.linear2a = self.linear2a.to(device)
+        self.linear2b = self.linear2b.to(device)
+        self.linear3 = self.linear3.to(device)
+
+        self.dp_0 = self.dp_0.to(device)
+        self.dp_a = self.dp_a.to(device)
+        self.dp_b = self.dp_b.to(device)
+        self.gaus_smoothing = self.gaus_smoothing.to(device)
+
+        self.prior_mu = self.prior_mu.to(device)
+        self.prior_logvar = self.prior_logvar.to(device)
+
+        self.classifiers = self.classifiers.to(device)
+
+    def forward(self, h, coords, height, width, slide_label=None, validation=False):
+
+        device = h.device
+        h = F.relu(self.dp_0(self.linear1(h)))
+
+        feat_a = self.dp_a(torch.sigmoid(self.linear2a(h)))
+        feat_b = self.dp_b(torch.tanh(self.linear2b(h)))
+        feat = feat_a.mul(feat_b)
+        params = self.linear3(feat)
+
+
+        coords = coords // PATCH_SIZE
+        asign = lambda coord: coord[:, 0] + coord[:, 1] * (width // PATCH_SIZE)
+        coords = asign(coords)
+        coords = torch.from_numpy(coords).to(device)
+
+
+        H = height // PATCH_SIZE + 1
+        W = width // PATCH_SIZE + 1
+        mu = torch.zeros([1, H * W], device=device)
+        logvar = torch.zeros([1, H * W], device=device)
+
+        mu[:, coords.long()] = params[:, 0]
+        logvar[:, coords.long()] = params[:, 1]
+
+        mu = mu.view(1, H, W)
+        logvar = logvar.view(1, H, W)
+
+
+        if not validation:
+            mu_pr = self.prior_mu[slide_label.item()].expand_as(mu)
+            logvar_pr = self.prior_logvar[slide_label.item()]
+            kl_div = self.kl_logistic_normal(mu_pr, mu, logvar_pr, logvar)
+        else:
+            kl_div = None
+
+        mu = F.pad(mu, (1, 1, 1, 1), mode='constant', value=0)
+        mu = torch.unsqueeze(mu, dim=0)
+        mu = self.gaus_smoothing(mu)
+
+        gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.squeeze(gaus_samples, dim=0)
+
+        A_full = torch.sigmoid(gaus_samples)
+        A_full = A_full.view(1,-1)
+
+        patch_A = torch.index_select(A_full, dim=1, index=coords)
+        alpha = patch_A.squeeze(0)
+
+        attended = alpha.unsqueeze(1) * h
+        inst_logits = self.classifiers(attended)
+        logits = inst_logits.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim=1)
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1, )
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim=1)[1]
+        Y_prob = F.softmax(top_instance, dim=1)
+
+        if not validation:
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
+        else:
+            return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
+
+
+class probabilistic_Conjunctive_MIL_Bayes_spvis(nn.Module):
+    def __init__(self, gate=True, size_arg="small", dropout=False, n_classes=2, top_k=1, input_dim=None):
+        super().__init__()
+
+        self.size_dict = {"small": [1024, 512, 256], "big": [1024, 512, 384]}
+        size = list(self.size_dict[size_arg])
+        if input_dim is not None:
+            size[0] = input_dim
+        self.input_dim = size[0]
+
+        ard_init = -4.
+        self.linear1 = nn.Linear(self.input_dim, size[1])
+        self.linear2a = LinearVDO(size[1], size[2], ard_init=ard_init)
+        self.linear2b = LinearVDO(size[1], size[2], ard_init=ard_init)
+        self.linear3 = LinearVDO(size[2], 2, ard_init=ard_init)
+
+        self.gaus_smoothing = GaussianSmoothing(1, 3, 0.5)
+        self.classifiers = LinearVDO(size[1], n_classes, ard_init=-3.)
+
+        self.dp_0 = nn.Dropout(0.25)
+        self.dp_a = nn.Dropout(0.25)
+        self.dp_b = nn.Dropout(0.25)
+
+        self.prior_mu = torch.tensor([3., 3., 3., 3.])
+        self.prior_logvar = torch.tensor([5., 5., 5., 5.])
+
+        initialize_weights(self)
+        self.top_k = top_k
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def kl_logistic_normal(self, mu_pr, mu_pos, logvar_pr, logvar_pos):
+        return (logvar_pr - logvar_pos) / 2. + (logvar_pos ** 2 + (mu_pr - mu_pos) ** 2) / (2. * logvar_pr ** 2) - 0.5
+
+    def relocate(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.linear1 = self.linear1.to(device)
+        self.linear2a = self.linear2a.to(device)
+        self.linear2b = self.linear2b.to(device)
+        self.linear3 = self.linear3.to(device)
+
+        self.dp_0 = self.dp_0.to(device)
+        self.dp_a = self.dp_a.to(device)
+        self.dp_b = self.dp_b.to(device)
+        self.gaus_smoothing = self.gaus_smoothing.to(device)
+
+        self.prior_mu = self.prior_mu.to(device)
+        self.prior_logvar = self.prior_logvar.to(device)
+
+        self.classifiers = self.classifiers.to(device)
+
+    def forward(self, h, coords, height, width, slide_label=None, validation=False):
+
+        device = h.device
+        h = F.relu(self.dp_0(self.linear1(h)))
+
+        feat_a = self.dp_a(torch.sigmoid(self.linear2a(h)))
+        feat_b = self.dp_b(torch.tanh(self.linear2b(h)))
+        feat = feat_a.mul(feat_b)
+        params = self.linear3(feat)
+
+
+        coords = coords // PATCH_SIZE
+        asign = lambda coord: coord[:, 0] + coord[:, 1] * (width // PATCH_SIZE)
+        coords = asign(coords)
+        coords = torch.from_numpy(coords).to(device)
+
+
+        H = height // PATCH_SIZE + 1
+        W = width // PATCH_SIZE + 1
+        mu = torch.zeros([1, H * W], device=device)
+        logvar = torch.zeros([1, H * W], device=device)
+
+        mu[:, coords.long()] = params[:, 0]
+        logvar[:, coords.long()] = params[:, 1]
+
+        mu = mu.view(1, H, W)
+        logvar = logvar.view(1, H, W)
+
+
+        if not validation:
+            mu_pr = self.prior_mu[slide_label.item()].expand_as(mu)
+            logvar_pr = self.prior_logvar[slide_label.item()]
+            kl_div = self.kl_logistic_normal(mu_pr, mu, logvar_pr, logvar)
+        else:
+            kl_div = None
+
+        mu = F.pad(mu, (1, 1, 1, 1), mode='constant', value=0)
+        mu = torch.unsqueeze(mu, dim=0)
+        mu = self.gaus_smoothing(mu)
+
+        gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.squeeze(gaus_samples, dim=0)
+
+        A_full = torch.sigmoid(gaus_samples)
+        A_full = A_full.view(1,-1)
+
+        patch_A = torch.index_select(A_full, dim=1, index=coords)
+        alpha = patch_A.squeeze(0)
+
+        inst_logits = self.classifiers(h)
+        contrib = alpha.unsqueeze(1) * inst_logits
+        logits = contrib.mean(dim=0, keepdim=True)
+
+        y_probs = F.softmax(logits, dim=1)
+        top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1, )
+        top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
+        Y_hat = torch.topk(top_instance, 1, dim=1)[1]
+        Y_prob = F.softmax(top_instance, dim=1)
+
+        if not validation:
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
+        else:
+            return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
 def get_ard_reg_vdo(module, reg=0):
     """
     :param module: model to evaluate ard regularization for
@@ -579,5 +973,11 @@ bMIL_model_dict = {
                     'conjvis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'convis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'enc': probabilistic_MIL_Bayes_enc,
+                    'addenc': probabilistic_Additive_MIL_Bayes_enc,
+                    'conjenc': probabilistic_Conjunctive_MIL_Bayes_enc,
+                    'conenc': probabilistic_Conjunctive_MIL_Bayes_enc,
                     'spvis': probabilistic_MIL_Bayes_spvis,
+                    'addspvis': probabilistic_Additive_MIL_Bayes_spvis,
+                    'conjspvis': probabilistic_Conjunctive_MIL_Bayes_spvis,
+                    'conspvis': probabilistic_Conjunctive_MIL_Bayes_spvis,
 }

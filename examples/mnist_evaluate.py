@@ -31,7 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--seed', type=int, default=1, help='Matches the value forwarded to main.py.')
     parser.add_argument(
         '--model-type',
-        choices=['bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis', 'bmil-enc', 'bmil-spvis'],
+        choices=[
+            'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+            'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+            'bmil-enc', 'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
+        ],
         default='bmil-vis',
     )
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')
