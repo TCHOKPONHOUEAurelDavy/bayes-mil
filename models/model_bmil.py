@@ -601,6 +601,7 @@ bMIL_model_dict = {
                     'vis': probabilistic_MIL_Bayes_vis,
                     'addvis': probabilistic_Additive_MIL_Bayes_vis,
                     'conjvis': probabilistic_Conjunctive_MIL_Bayes_vis,
+                    'convis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'enc': probabilistic_MIL_Bayes_enc,
                     'spvis': probabilistic_MIL_Bayes_spvis,
 }

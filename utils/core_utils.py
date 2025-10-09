@@ -352,14 +352,15 @@ def train(datasets, cur, args):
 
 
     if args.model_type.startswith('bmil'):
-        model = bMIL_model_dict[args.model_type.split('-')[1]](**model_dict)
+        model_key = args.model_type.split('-')[1]
+        model = bMIL_model_dict[model_key](**model_dict)
         bayes_args = [get_ard_reg_vdo, 1e-8, 1e-6]
-        if 'vis' in args.model_type.split('-'):
-            bayes_args.append('vis')
-        elif 'spvis' in args.model_type.split('-'):
+        if model_key == 'spvis':
             bayes_args.append('spvis')
-        elif 'enc' in args.model_type.split('-'):
+        elif model_key == 'enc':
             bayes_args.append('enc')
+        else:
+            bayes_args.append('vis')
     else:
         raise NotImplementedError
 

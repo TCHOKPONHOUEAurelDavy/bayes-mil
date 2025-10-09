@@ -108,7 +108,7 @@ bMIL_model_dict = {
 >📋 Update `--model_type` to the corresponding model.
 * `bmil-vis`: Bayes-MIL-Vis
 * `bmil-addvis`: Additive Bayes-MIL-Vis
-* `bmil-conjvis`: Conjunctive Bayes-MIL-Vis
+* `bmil-conjvis`: Conjunctive Bayes-MIL-Vis (legacy alias: `bmil-convis`)
 * `bmil-enc`: Bayes-MIL-SDPR
 * `bmil-spvis`: Bayes-MIL-APCRF
 
