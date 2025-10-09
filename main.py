@@ -114,9 +114,11 @@ parser.add_argument('--opt', type=str, choices = ['adam', 'sgd'], default='adam'
 parser.add_argument('--drop_out', action='store_true', default=False, help='enabel dropout (p=0.25)')
 parser.add_argument('--bag_loss', type=str, choices=['svm', 'ce'], default='ce',
                      help='slide-level classification loss function (default: ce)')
-parser.add_argument('--model_type', type=str, choices=['clam_sb', 'clam_mb', 'mil', 'msa', 'pmil-V', 
-                                                        'pmil-C', 'pmil-N', 
-                                                        'bmil-A', 'bmil-F', 'bmil-vis', 'bmil-convis', 'bmil-spvis',
+parser.add_argument('--model_type', type=str, choices=['clam_sb', 'clam_mb', 'mil', 'msa', 'pmil-V',
+                                                        'pmil-C', 'pmil-N',
+                                                        'bmil-A', 'bmil-F', 'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+                                                        'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+                                                        'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
                                                         'bmil-enc', 'mil_baens', 'hmil', 'smil-D'],
                     default='clam_sb', help='type of model (default: clam_sb, clam w/ single attention branch)')
 parser.add_argument('--exp_code', type=str, help='experiment code for saving results')
@@ -193,7 +195,7 @@ if args.task == 'task_1_tumor_vs_normal':
                                   label_dict={'normal': 0, 'tumor': 1},
                                   patient_strat=False,
                                   ignore=[])
-    if 'convis' in args.model_type or 'spvis' in args.model_type:
+    if any(flag in args.model_type for flag in ('convis', 'conjvis', 'spvis')):
         dataset.load_from_h5(True)
 
 elif args.task == 'task_2_tumor_subtyping':
@@ -226,7 +228,7 @@ elif args.task == 'mnist_fourbags':
         ignore=[],
         label_col='label_name',
     )
-    if 'convis' in args.model_type or 'spvis' in args.model_type:
+    if any(flag in args.model_type for flag in ('convis', 'conjvis', 'spvis')):
         dataset.load_from_h5(True)
 
 elif args.task == 'mnist_even_odd':
@@ -245,7 +247,7 @@ elif args.task == 'mnist_even_odd':
         ignore=[],
         label_col='label_name',
     )
-    if 'convis' in args.model_type or 'spvis' in args.model_type:
+    if any(flag in args.model_type for flag in ('convis', 'conjvis', 'spvis')):
         dataset.load_from_h5(True)
 
 elif args.task == 'mnist_adjacent_pairs':
@@ -264,7 +266,7 @@ elif args.task == 'mnist_adjacent_pairs':
         ignore=[],
         label_col='label_name',
     )
-    if 'convis' in args.model_type or 'spvis' in args.model_type:
+    if any(flag in args.model_type for flag in ('convis', 'conjvis', 'spvis')):
         dataset.load_from_h5(True)
 
 elif args.task == 'mnist_fourbags_plus':
@@ -283,7 +285,7 @@ elif args.task == 'mnist_fourbags_plus':
         ignore=[],
         label_col='label_name',
     )
-    if 'convis' in args.model_type or 'spvis' in args.model_type:
+    if any(flag in args.model_type for flag in ('convis', 'conjvis', 'spvis')):
         dataset.load_from_h5(True)
 
 else:

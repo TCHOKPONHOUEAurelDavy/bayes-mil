@@ -26,14 +26,15 @@ def initiate_model(args, ckpt_path, dataset=None, feature_dim=None):
     
 
     if args.model_type.startswith('bmil'):
-        model = bMIL_model_dict[args.model_type.split('-')[1]](**model_dict)
+        model_key = args.model_type.split('-')[1]
+        model = bMIL_model_dict[model_key](**model_dict)
         bayes_args = [get_ard_reg_vdo, 1e-5]
-        if 'spvis' in args.model_type.split('-'):
+        if model_key == 'spvis':
             bayes_args.append('spvis')
-        elif 'vis' in args.model_type.split('-'):
-            bayes_args.append('vis')
-        elif 'enc' in args.model_type.split('-'):
+        elif model_key == 'enc':
             bayes_args.append('enc')
+        else:
+            bayes_args.append('vis')
 
     print_network(model)
 

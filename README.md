@@ -99,14 +99,22 @@ For training, look under `models/model_bmil.py`:
 ```bash
 bMIL_model_dict = {
                     'vis': probabilistic_MIL_Bayes_vis,
+                    'addvis': probabilistic_Additive_MIL_Bayes_vis,
+                    'conjvis': probabilistic_Conjunctive_MIL_Bayes_vis,
                     'enc': probabilistic_MIL_Bayes_enc,
-                    'spvis': probabilistic_MIL_Bayes_spvis,          
+                    'spvis': probabilistic_MIL_Bayes_spvis,
 }
 ```
->📋 Update `--model_type` to the corresponding model. 
+>📋 Update `--model_type` to the corresponding model.
 * `bmil-vis`: Bayes-MIL-Vis
+* `bmil-addvis`: Additive Bayes-MIL-Vis
+* `bmil-conjvis`: Conjunctive Bayes-MIL-Vis (legacy alias: `bmil-convis`)
 * `bmil-enc`: Bayes-MIL-SDPR
+* `bmil-addenc`: Additive Bayes-MIL-SDPR
+* `bmil-conjenc`: Conjunctive Bayes-MIL-SDPR (legacy alias: `bmil-conenc`)
 * `bmil-spvis`: Bayes-MIL-APCRF
+* `bmil-addspvis`: Additive Bayes-MIL-APCRF
+* `bmil-conjspvis`: Conjunctive Bayes-MIL-APCRF (legacy alias: `bmil-conspvis`)
 
 ```shell
 CUDA_VISIBLE_DEVICES=0 nohup python -u main.py --drop_out --early_stopping --lr 1e-4 --k 10 --label_frac 0.75 --exp_code task_1_tumor_vs_normal_CLAM_75 --weighted_sample --bag_loss ce --inst_loss svm --task task_1_tumor_vs_normal --model_type bmil-vis --log_data --data_root_dir FEATURES_DIRECTORY &

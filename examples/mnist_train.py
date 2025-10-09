@@ -34,7 +34,15 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--exp-code', type=str, default='mnist_demo', help='Experiment identifier forwarded to main.py.')
     parser.add_argument('--results-dir', type=Path, default=REPO_ROOT / 'results', help='Where checkpoints will be written.')
-    parser.add_argument('--model-type', choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis')
+    parser.add_argument(
+        '--model-type',
+        choices=[
+            'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+            'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+            'bmil-enc', 'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
+        ],
+        default='bmil-vis',
+    )
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')
     parser.add_argument('--k', type=int, default=5, help='Number of cross-validation folds.')
     parser.add_argument('--max-epochs', type=int, default=20)

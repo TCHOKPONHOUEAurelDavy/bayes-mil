@@ -39,7 +39,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--exp-code', type=str, required=True, help='Experiment identifier used during training.')
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--fold', type=int, default=0)
-    parser.add_argument('--model-type', choices=['bmil-vis', 'bmil-enc', 'bmil-spvis'], default='bmil-vis')
+    parser.add_argument(
+        '--model-type',
+        choices=[
+            'bmil-vis', 'bmil-addvis', 'bmil-conjvis', 'bmil-convis',
+            'bmil-addenc', 'bmil-conjenc', 'bmil-conenc',
+            'bmil-enc', 'bmil-spvis', 'bmil-addspvis', 'bmil-conjspvis', 'bmil-conspvis',
+        ],
+        default='bmil-vis',
+    )
     parser.add_argument('--model-size', choices=['small', 'big'], default='small')
     parser.add_argument('--drop-out', action='store_true')
     parser.add_argument('--split', choices=['train', 'val', 'test', 'all'], default='test')
