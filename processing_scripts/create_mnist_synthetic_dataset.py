@@ -22,6 +22,14 @@ import torch
 from processing_scripts.mnist_number_datasets import DATASET_CLASSES
 
 
+DATASET_LABELS: Dict[str, List[str]] = {
+    "mnist_fourbags": ["none", "mostly_eight", "mostly_nine", "both"],
+    "mnist_even_odd": ["odd_majority", "even_majority"],
+    "mnist_adjacent_pairs": ["no_adjacent_pairs", "has_adjacent_pairs"],
+    "mnist_fourbags_plus": ["none", "three_five", "one_only", "one_and_seven"],
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create MNIST-based MIL slides using the original task rules.",
@@ -82,7 +90,7 @@ def append_shape(shape_file: Path, slide_id: str, coords: np.ndarray, patch_size
 
 def stratified_folds(slides: List[Dict[str, str]], k_folds: int, seed: int) -> List[List[str]]:
     rng = np.random.default_rng(seed)
-    buckets: Dict[int, List[str]] = {}
+    buckets: Dict[str, List[str]] = {}
     for slide in slides:
         buckets.setdefault(slide["label"], []).append(slide["slide_id"])
     folds = [[] for _ in range(k_folds)]
@@ -214,6 +222,13 @@ def main() -> None:
         seed=args.seed,
     )
 
+    try:
+        label_names = DATASET_LABELS[args.dataset]
+    except KeyError as exc:
+        raise KeyError(
+            f"No label mapping registered for dataset {args.dataset!r}."
+        ) from exc
+
     output_dir = args.output_dir
     ensure_dir(output_dir)
     ensure_dir(output_dir / "h5_files")
@@ -236,7 +251,12 @@ def main() -> None:
         write_h5(features, coords, output_dir / "h5_files" / f"{slide_id}.h5")
         append_shape(shape_file, slide_id, coords)
 
-        label = int(item["targets"].item())
+        label_index = int(item["targets"].item())
+        if not 0 <= label_index < len(label_names):
+            raise ValueError(
+                f"Label index {label_index} out of range for dataset {args.dataset!r}."
+            )
+        label = label_names[label_index]
         slides.append(
             {
                 "case_id": case_id,
