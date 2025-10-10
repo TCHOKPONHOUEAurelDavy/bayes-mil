@@ -131,6 +131,28 @@ By adding your own custom datasets into `eval.py` the same way as you do for `ma
 CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR
 ```
 
+### Explainability add-on
+
+The evaluation script can optionally compute the instance-level and attention-based
+interpretability metrics that mirror the reference leaderboard submission. Enable
+this pass with `--run-explainability`; the command below evaluates the same model
+checkpoint while writing per-fold interpretability CSV files alongside the
+standard bag-level summary.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR --run-explainability --explanation-type all --explainability-model-mode validation
+```
+
+Key flags:
+
+* `--run-explainability`: toggles the interpretability evaluation.
+* `--explanation-type`: comma separated list of explanation heads to score (e.g.
+  `learn,learn-plus,int-attn-coeff`) or `all` to mirror the full reference set.
+* `--explanation-class`: optional class index passed to the instance metrics when
+  working with multi-class checkpoints.
+* `--explainability-model-mode`: forwarded to the model so the same evaluation
+  code can be used across `validation`, `test`, or any custom forward modes.
+
 ## Heatmap Visualization
 
 Modify the `heatmaps/configs/config_template.yaml` to filling out the config. The heatmaps will be saved in `heatmaps/heatmap_raw_results`.
