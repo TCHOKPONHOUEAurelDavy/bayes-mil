@@ -1,4 +1,10 @@
-"""Generate a synthetic MIL dataset for a single MNIST-based task."""
+"""Generate a synthetic MIL dataset for a single MNIST-based task.
+
+The exported HDF5 files expose the features, coordinates, and optional
+interpretability metadata (`numbers`, `instance_labels`, and class-wise
+`evidence/<class_id>` datasets) required to recover the ground-truth digits
+included in each synthetic slide.
+"""
 
 from __future__ import annotations
 
@@ -90,11 +96,27 @@ def make_grid_coords(num_instances: int, patch_size: int = 28) -> np.ndarray:
     return np.asarray(coords, dtype=np.int32)
 
 
-def write_h5(features: np.ndarray, coords: np.ndarray, destination: Path) -> None:
+def write_h5(
+    features: np.ndarray,
+    coords: np.ndarray,
+    destination: Path,
+    numbers: np.ndarray | None = None,
+    instance_labels: np.ndarray | None = None,
+    evidence: Dict[int, np.ndarray] | None = None,
+) -> None:
+    """Persist one synthetic slide and optional interpretability metadata."""
     ensure_dir(destination.parent)
     with h5py.File(destination, "w") as handle:
         handle.create_dataset("features", data=features)
         handle.create_dataset("coords", data=coords)
+        if numbers is not None:
+            handle.create_dataset("numbers", data=numbers)
+        if instance_labels is not None:
+            handle.create_dataset("instance_labels", data=instance_labels)
+        if evidence is not None:
+            evidence_group = handle.create_group("evidence")
+            for class_id, weights in evidence.items():
+                evidence_group.create_dataset(str(class_id), data=weights)
 
 
 def append_shape(shape_file: Path, slide_id: str, coords: np.ndarray, patch_size: int = 28) -> None:
@@ -260,8 +282,37 @@ def main() -> None:
 
         features = item["features"].reshape(args.bag_size, -1).numpy()
         coords = make_grid_coords(args.bag_size)
+        numbers = item.get("numbers")
+        if numbers is not None:
+            if hasattr(numbers, "detach"):
+                numbers = numbers.detach().cpu().numpy()
+            else:
+                numbers = np.asarray(numbers)
+        instance_labels = item.get("instance_labels")
+        if instance_labels is not None:
+            if hasattr(instance_labels, "detach"):
+                instance_labels = instance_labels.detach().cpu().numpy()
+            else:
+                instance_labels = np.asarray(instance_labels)
+        evidence = item.get("evidence")
+        if evidence is not None:
+            evidence = {
+                int(class_id): (
+                    values.detach().cpu().numpy()
+                    if hasattr(values, "detach")
+                    else np.asarray(values)
+                )
+                for class_id, values in evidence.items()
+            }
 
-        write_h5(features, coords, output_dir / "h5_files" / f"{slide_id}.h5")
+        write_h5(
+            features,
+            coords,
+            output_dir / "h5_files" / f"{slide_id}.h5",
+            numbers=numbers,
+            instance_labels=instance_labels,
+            evidence=evidence,
+        )
         append_shape(shape_file, slide_id, coords)
 
         label = int(item["targets"].item())

@@ -33,7 +33,10 @@ Key options:
 
 The directory will contain:
 
-- `h5_files/slide_xxxx.h5`: flattened MNIST pixels and 2-D coordinates for each bag.
+- `h5_files/slide_xxxx.h5`: flattened MNIST pixels, 2-D coordinates, and
+  interpretability metadata. The file stores the raw `numbers` sampled for the
+  bag, optional per-instance labels under `instance_labels`, and evidence maps
+  grouped under `evidence/<class_id>` when the dataset provides them.
 - `<dataset>.csv`: labels for the chosen task. The CSV exposes a numeric `label`
   column and a human-readable `label_name` column, both consistent with the
   original rule set implemented by the dataset class.
