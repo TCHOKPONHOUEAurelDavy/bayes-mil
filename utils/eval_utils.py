@@ -29,9 +29,9 @@ def initiate_model(args, ckpt_path, dataset=None, feature_dim=None):
         model_key = args.model_type.split('-')[1]
         model = bMIL_model_dict[model_key](**model_dict)
         bayes_args = [get_ard_reg_vdo, 1e-5]
-        if model_key == 'spvis':
+        if 'spvis' in model_key:
             bayes_args.append('spvis')
-        elif model_key == 'enc':
+        elif 'enc' in model_key:
             bayes_args.append('enc')
         else:
             bayes_args.append('vis')

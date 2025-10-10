@@ -275,8 +275,10 @@ class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
     def forward(self, h, validation=False):
         A_param, h = self.attention_net(h)
         mu, logvar = A_param[:, 0], A_param[:, 1]
+        logvar = torch.clamp(logvar, -10.0, 10.0)
 
         gaus = self.reparameterize(mu, logvar)
+        gaus = torch.clamp(gaus, -20.0, 20.0)
         alpha = torch.sigmoid(gaus)
         A = alpha.unsqueeze(0)
 
@@ -511,7 +513,9 @@ class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
     def forward(self, h, return_features=False, slide_label=None, validation=False):
         param, h_proj = self.postr_net(h)
         mu, logvar = param[:, 0], param[:, 1]
+        logvar = torch.clamp(logvar, -10.0, 10.0)
         gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.clamp(gaus_samples, -20.0, 20.0)
         alpha = torch.sigmoid(gaus_samples)
         A = alpha.unsqueeze(0)
 
@@ -829,6 +833,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         logvar[:, coords.long()] = params[:, 1]
         mu = mu.view(1, H, W)
         logvar = logvar.view(1, H, W)
+        logvar = torch.clamp(logvar, -10.0, 10.0)
 
         if not validation:
             mu_pr = self.prior_mu[slide_label.item()].expand_as(mu)
@@ -841,6 +846,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         mu = torch.unsqueeze(mu, dim=0)
         mu = self.gaus_smoothing(mu)
         gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.clamp(gaus_samples, -20.0, 20.0)
         gaus_samples = torch.squeeze(gaus_samples, dim=0)
         A_full = torch.sigmoid(gaus_samples)
         A_full = A_full.view(1, -1)
