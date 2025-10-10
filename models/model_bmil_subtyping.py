@@ -275,8 +275,10 @@ class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
     def forward(self, h, validation=False):
         A_param, h = self.attention_net(h)
         mu, logvar = A_param[:, 0], A_param[:, 1]
+        logvar = torch.clamp(logvar, -10.0, 10.0)
 
         gaus = self.reparameterize(mu, logvar)
+        gaus = torch.clamp(gaus, -20.0, 20.0)
         alpha = torch.sigmoid(gaus)
         A = alpha.unsqueeze(0)
 
@@ -494,7 +496,9 @@ class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
 
         mu = param[:, 0]
         logvar = param[:, 1]
+        logvar = torch.clamp(logvar, -10.0, 10.0)
         gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.clamp(gaus_samples, -20.0, 20.0)
         alpha = torch.sigmoid(gaus_samples)
         A = alpha.unsqueeze(0)
 
@@ -801,6 +805,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
 
         mu = mu.view(1, H, W)
         logvar = logvar.view(1, H, W)
+        logvar = torch.clamp(logvar, -10.0, 10.0)
 
 
         if not validation:
@@ -815,6 +820,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         mu = self.gaus_smoothing(mu)
 
         gaus_samples = self.reparameterize(mu, logvar)
+        gaus_samples = torch.clamp(gaus_samples, -20.0, 20.0)
         gaus_samples = torch.squeeze(gaus_samples, dim=0)
 
         A_full = torch.sigmoid(gaus_samples)

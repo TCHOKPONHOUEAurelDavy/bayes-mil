@@ -351,16 +351,19 @@ def train(datasets, cur, args):
     bayes_args = None
 
 
+    use_grad_clip = False
     if args.model_type.startswith('bmil'):
         model_key = args.model_type.split('-')[1]
         model = bMIL_model_dict[model_key](**model_dict)
         bayes_args = [get_ard_reg_vdo, 1e-8, 1e-6]
-        if model_key == 'spvis':
+        if 'spvis' in model_key:
             bayes_args.append('spvis')
-        elif model_key == 'enc':
+        elif 'enc' in model_key:
             bayes_args.append('enc')
         else:
             bayes_args.append('vis')
+        if model_key.startswith('add'):
+            use_grad_clip = True
     else:
         raise NotImplementedError
 
@@ -391,7 +394,7 @@ def train(datasets, cur, args):
     # stochastic = (bayes_reg != None)
 
     for epoch in range(args.max_epochs):
-        train_loop(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn, bayes_args)
+        train_loop(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn, bayes_args, grad_clip=use_grad_clip)
         stop, val_loss = validate(cur, epoch, model, val_loader, args.n_classes,
             early_stopping, writer, loss_fn, args.results_dir, bayes_args)
         scheduler.step(val_loss)
@@ -430,7 +433,7 @@ def train(datasets, cur, args):
     return results_dict, test_auc, val_auc, 1 - test_error, 1 - val_error, test_ece_loss, val_ece_loss, test_f1, val_f1
 
 
-def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_fn = None, bayes_args=None):   
+def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_fn = None, bayes_args=None, grad_clip=False):
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu") 
     model.train()
     acc_logger = Accuracy_Logger(n_classes=n_classes)
@@ -480,6 +483,8 @@ def train_loop(epoch, model, loader, optimizer, n_classes, writer = None, loss_f
 
         # backward pass
         loss.backward()
+        if grad_clip:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         # step
         optimizer.step()
         optimizer.zero_grad()
