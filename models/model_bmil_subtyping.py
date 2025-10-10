@@ -807,6 +807,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         logvar = logvar.view(1, H, W)
         logvar = torch.clamp(logvar, -10.0, 10.0)
 
+
         if not validation:
             mu_pr = self.prior_mu[slide_label.item()].expand_as(mu)
             logvar_pr = self.prior_logvar[slide_label.item()]
