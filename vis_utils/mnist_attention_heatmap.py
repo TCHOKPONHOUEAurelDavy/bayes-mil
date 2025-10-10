@@ -171,19 +171,23 @@ def run_inference(
         if model_type == 'bmil-spvis':
             width = int(coords[:, 0].max() + PATCH_PIXELS)
             height = int(coords[:, 1].max() + PATCH_PIXELS)
-            _, _, _, slide_prob, attention = model(
+            outputs = model(
                 features_tensor,
                 coords,
                 height,
                 width,
                 validation=True,
+                return_instance_outputs=True,
             )
+            _, _, _, slide_prob, _, instance_outputs = outputs
             bag_probs = slide_prob
         else:
-            _, _, _, bag_probs, attention = model(features_tensor, validation=True)
+            outputs = model(features_tensor, validation=True, return_instance_outputs=True)
+            _, _, _, bag_probs, _, instance_outputs = outputs
 
     probs = bag_probs.squeeze(0).detach().cpu().numpy()
-    attention_scores = attention.squeeze(0).detach().cpu().numpy()
+    attention_tensor = instance_outputs["attention"].squeeze(0)
+    attention_scores = attention_tensor.detach().cpu().numpy()
     return probs, attention_scores
 
 

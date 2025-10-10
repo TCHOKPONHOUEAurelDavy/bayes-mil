@@ -206,34 +206,39 @@ class probabilistic_MIL_Bayes_vis(nn.Module):
         self.classifiers = self.classifiers.to(device)
         self.temperature = self.temperature.to(device)
 
-    def forward(self, h, validation=False):
+    def forward(self, h, validation=False, return_instance_outputs: bool = False):
         device = h.device
-        #*-*# A, h = self.attention_net(h)  # NxK        
+        #*-*# A, h = self.attention_net(h)  # NxK
 
         A, h = self.attention_net(h)
 
-        
+
         mu = A[:, 0]
         logvar = A[:, 1]
         gaus_samples = self.reparameterize(mu, logvar)
         beta_samples = F.sigmoid(gaus_samples)
-        A = beta_samples.unsqueeze(0)
+        alpha = beta_samples
+        A = alpha.unsqueeze(0)
         # print('gaus   max: {0:.4f}, gaus   min: {1:.4f}.'.format(torch.max(gaus_samples), torch.min(gaus_samples)))
         # print('sample max: {0:.4f}, sample min: {1:.4f}.'.format(torch.max(A), torch.min(A)))
 
-        M = torch.mm(A, h) / A.sum()
-        logits = self.classifiers(M)
+        inst_logits = self.classifiers(h)
+        logits = torch.mm(A, inst_logits) / A.sum(dim=1, keepdim=True)
         y_probs = F.softmax(logits, dim = 1)
         top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1,)
         top_instance = torch.index_select(logits, dim=0, index=top_instance_idx)
         Y_hat = torch.topk(top_instance, 1, dim = 1)[1]
-        Y_prob = F.softmax(top_instance, dim = 1) 
+        Y_prob = F.softmax(top_instance, dim = 1)
         # results_dict = {}
 
         # if return_features:
         #     top_features = torch.index_select(h, dim=0, index=top_instance_idx)
         #     results_dict.update({'features': top_features})
-        return top_instance, Y_prob, Y_hat, y_probs, A
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
+        return outputs
 
 
 class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
@@ -272,7 +277,7 @@ class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
         self.classifiers = self.classifiers.to(device)
         self.temperature = self.temperature.to(device)
 
-    def forward(self, h, validation=False):
+    def forward(self, h, validation=False, return_instance_outputs: bool = False):
         A_param, h = self.attention_net(h)
         mu, logvar = A_param[:, 0], A_param[:, 1]
         logvar = torch.clamp(logvar, -10.0, 10.0)
@@ -293,7 +298,11 @@ class probabilistic_Additive_MIL_Bayes_vis(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
-        return top_instance, Y_prob, Y_hat, y_probs, A
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
+        return outputs
 
 
 class probabilistic_Conjunctive_MIL_Bayes_vis(nn.Module):
@@ -332,7 +341,7 @@ class probabilistic_Conjunctive_MIL_Bayes_vis(nn.Module):
         self.classifiers = self.classifiers.to(device)
         self.temperature = self.temperature.to(device)
 
-    def forward(self, h, validation=False):
+    def forward(self, h, validation=False, return_instance_outputs: bool = False):
         A_param, h = self.attention_net(h)
         mu, logvar = A_param[:, 0], A_param[:, 1]
 
@@ -351,7 +360,11 @@ class probabilistic_Conjunctive_MIL_Bayes_vis(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
-        return top_instance, Y_prob, Y_hat, y_probs, A
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
+        return outputs
 
 
 class probabilistic_MIL_Bayes_enc(nn.Module):
@@ -420,9 +433,9 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
     def kl_logistic_normal(self, mu_pr, mu_pos, logvar_pr, logvar_pos):
         return (logvar_pr - logvar_pos) / 2. + (logvar_pos ** 2 + (mu_pr - mu_pos) ** 2) / (2. * logvar_pr ** 2) -0.5
 
-    def forward(self, h, return_features=False, slide_label=None, validation=False):
+    def forward(self, h, return_features=False, slide_label=None, validation=False, return_instance_outputs: bool = False):
         device = h.device
-        #*-*# A, h = self.attention_net(h)  # NxK 
+        #*-*# A, h = self.attention_net(h)  # NxK
 
         param, h = self.postr_net(h)
 
@@ -439,9 +452,8 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
         else:
             kl_div = None
 
-        M = torch.mm(A, h) / A.sum()
-
-        logits = self.classifiers(M)
+        inst_logits = self.classifiers(h)
+        logits = torch.mm(A, inst_logits) / A.sum(dim=1, keepdim=True)
 
         y_probs = F.softmax(logits, dim = 1)
         top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1,)
@@ -453,10 +465,14 @@ class probabilistic_MIL_Bayes_enc(nn.Module):
         if return_features:
             top_features = torch.index_select(h, dim=0, index=top_instance_idx)
             results_dict.update({'features': top_features})
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
         if not validation:
             return top_instance, Y_prob, Y_hat, kl_div, y_probs, A
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, A
+            return outputs
 
 
 class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
@@ -510,7 +526,7 @@ class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
         self.prior_mu = self.prior_mu.to(device)
         self.prior_logvar = self.prior_logvar.to(device)
 
-    def forward(self, h, return_features=False, slide_label=None, validation=False):
+    def forward(self, h, return_features=False, slide_label=None, validation=False, return_instance_outputs: bool = False):
         param, h_proj = self.postr_net(h)
         mu, logvar = param[:, 0], param[:, 1]
         logvar = torch.clamp(logvar, -10.0, 10.0)
@@ -536,10 +552,14 @@ class probabilistic_Additive_MIL_Bayes_enc(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
         if not validation:
             return top_instance, Y_prob, Y_hat, kl_div, y_probs, A
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, A
+            return outputs
 
 
 class probabilistic_Conjunctive_MIL_Bayes_enc(nn.Module):
@@ -592,7 +612,7 @@ class probabilistic_Conjunctive_MIL_Bayes_enc(nn.Module):
         self.prior_mu = self.prior_mu.to(device)
         self.prior_logvar = self.prior_logvar.to(device)
 
-    def forward(self, h, return_features=False, slide_label=None, validation=False):
+    def forward(self, h, return_features=False, slide_label=None, validation=False, return_instance_outputs: bool = False):
         param, h_proj = self.postr_net(h)
         mu, logvar = param[:, 0], param[:, 1]
         gaus_samples = self.reparameterize(mu, logvar)
@@ -616,10 +636,14 @@ class probabilistic_Conjunctive_MIL_Bayes_enc(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
+        outputs = (top_instance, Y_prob, Y_hat, y_probs, A)
+        if return_instance_outputs:
+            details = {"instance_logits": inst_logits, "attention": A}
+            return outputs + (details,)
         if not validation:
             return top_instance, Y_prob, Y_hat, kl_div, y_probs, A
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, A
+            return outputs
 
 
 PATCH_SIZE = 256
@@ -692,7 +716,7 @@ class probabilistic_MIL_Bayes_spvis(nn.Module):
 
         self.classifiers = self.classifiers.to(device)
 
-    def forward(self, h, coords, height, width, slide_label=None, validation=False):
+    def forward(self, h, coords, height, width, slide_label=None, validation=False, return_instance_outputs: bool = False):
 
         device = h.device
         h = F.relu(self.dp_0(self.linear1(h)))
@@ -738,9 +762,8 @@ class probabilistic_MIL_Bayes_spvis(nn.Module):
         A = A.view(1,-1)
 
         patch_A = torch.index_select(A, dim=1, index=coords)
-        M = torch.mm(patch_A, h) / patch_A.sum()
-
-        logits = self.classifiers(M)
+        inst_logits = self.classifiers(h)
+        logits = torch.mm(patch_A, inst_logits) / patch_A.sum(dim=1, keepdim=True)
 
         y_probs = F.softmax(logits, dim=1)
         top_instance_idx = torch.topk(y_probs[:, 1], self.top_k, dim=0)[1].view(1, )
@@ -748,10 +771,19 @@ class probabilistic_MIL_Bayes_spvis(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
+        attention = patch_A.view((1, -1))
+
         if not validation:
-            return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return (top_instance, Y_prob, Y_hat, y_probs, attention, details)
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, attention
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
+            outputs = (top_instance, Y_prob, Y_hat, y_probs, attention)
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return outputs + (details,)
+            return outputs
 
 
 class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
@@ -811,7 +843,7 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         self.prior_logvar = self.prior_logvar.to(device)
         self.classifiers = self.classifiers.to(device)
 
-    def forward(self, h, coords, height, width, slide_label=None, validation=False):
+    def forward(self, h, coords, height, width, slide_label=None, validation=False, return_instance_outputs: bool = False):
         device = h.device
         h = F.relu(self.dp_0(self.linear1(h)))
 
@@ -864,10 +896,19 @@ class probabilistic_Additive_MIL_Bayes_spvis(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
+        attention = patch_A.view((1, -1))
+
         if not validation:
-            return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return (top_instance, Y_prob, Y_hat, y_probs, attention, details)
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, attention
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
+            outputs = (top_instance, Y_prob, Y_hat, y_probs, attention)
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return outputs + (details,)
+            return outputs
 
 
 class probabilistic_Conjunctive_MIL_Bayes_spvis(nn.Module):
@@ -927,7 +968,7 @@ class probabilistic_Conjunctive_MIL_Bayes_spvis(nn.Module):
         self.prior_logvar = self.prior_logvar.to(device)
         self.classifiers = self.classifiers.to(device)
 
-    def forward(self, h, coords, height, width, slide_label=None, validation=False):
+    def forward(self, h, coords, height, width, slide_label=None, validation=False, return_instance_outputs: bool = False):
         device = h.device
         h = F.relu(self.dp_0(self.linear1(h)))
 
@@ -978,10 +1019,19 @@ class probabilistic_Conjunctive_MIL_Bayes_spvis(nn.Module):
         Y_hat = torch.topk(top_instance, 1, dim=1)[1]
         Y_prob = F.softmax(top_instance, dim=1)
 
+        attention = patch_A.view((1, -1))
+
         if not validation:
-            return top_instance, Y_prob, Y_hat, kl_div, y_probs, patch_A.view((1, -1))
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return (top_instance, Y_prob, Y_hat, y_probs, attention, details)
+            return top_instance, Y_prob, Y_hat, kl_div, y_probs, attention
         else:
-            return top_instance, Y_prob, Y_hat, y_probs, patch_A.view((1, -1))
+            outputs = (top_instance, Y_prob, Y_hat, y_probs, attention)
+            if return_instance_outputs:
+                details = {"instance_logits": inst_logits, "attention": attention}
+                return outputs + (details,)
+            return outputs
 def get_ard_reg_vdo(module, reg=0):
     """
     :param module: model to evaluate ard regularization for
