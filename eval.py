@@ -53,8 +53,13 @@ parser.add_argument('--micro_average', action='store_true', default=False,
 parser.add_argument('--split', type=str, choices=['train', 'val', 'test', 'all'], default='test')
 parser.add_argument('--run-explainability', action='store_true', default=False,
                     help='Compute interpretability metrics after bag-level evaluation')
-parser.add_argument('--explanation-type', type=str, default='both',
-                    help="Comma separated list selecting 'instance', 'attention', or 'both'")
+parser.add_argument(
+    '--explanation-type',
+    type=str,
+    default='all',
+    help='Comma separated list of explanation names (learn, learn-modified, learn-plus, '
+    'int-attn-coeff, int-built-in, int-computed, int-clf) or "all".',
+)
 parser.add_argument('--explanation-class', type=int, default=None,
                     help='Optional class index used for binary interpretability metrics')
 parser.add_argument('--explainability-model-mode', type=str, default='validation',
@@ -231,7 +236,7 @@ if __name__ == "__main__":
 
         if args.run_explainability:
             try:
-                explainability = evaluate_explainability(
+                explainability_results = evaluate_explainability(
                     model,
                     split_dataset,
                     model_type=args.model_type,
@@ -239,13 +244,22 @@ if __name__ == "__main__":
                     evaluated_class=args.explanation_class,
                     model_mode=args.explainability_model_mode,
                 )
-                explainability_record = explainability.to_dict()
-                explainability_record.update({'fold': folds[ckpt_idx]})
-                explainability_rows.append(explainability_record)
-                pd.DataFrame([explainability_record]).replace({None: np.nan}).to_csv(
-                    os.path.join(args.save_dir, 'fold_{}_explainability.csv'.format(folds[ckpt_idx])),
-                    index=False,
-                )
+                if explainability_results:
+                    fold_records = []
+                    for metrics in explainability_results:
+                        record = metrics.to_dict()
+                        record.update({'fold': folds[ckpt_idx]})
+                        fold_records.append(record)
+                        explainability_rows.append(record)
+                    pd.DataFrame(fold_records).replace({None: np.nan}).to_csv(
+                        os.path.join(args.save_dir, 'fold_{}_explainability.csv'.format(folds[ckpt_idx])),
+                        index=False,
+                    )
+                else:
+                    print(
+                        f"Explainability evaluation produced no metrics for fold {folds[ckpt_idx]} "
+                        "(no supported explanation names requested)."
+                    )
             except (OSError, KeyError, ValueError, RuntimeError) as err:
                 print(f"Explainability evaluation skipped for fold {folds[ckpt_idx]}: {err}")
 
@@ -253,11 +267,15 @@ if __name__ == "__main__":
     if explainability_rows:
         explainability_df = pd.DataFrame(explainability_rows).replace({None: np.nan})
         explainability_df.to_csv(os.path.join(args.save_dir, 'explainability_summary.csv'), index=False)
-        explainability_lookup = explainability_df.set_index('fold')
-        for column in explainability_df.columns:
-            if column == 'fold':
-                continue
-            final_df[column] = final_df['folds'].map(explainability_lookup[column])
+        pivot_df = (
+            explainability_df
+            .set_index(['fold', 'explanation_type'])
+            .sort_index()
+        )
+        wide_df = pivot_df.unstack('explanation_type')
+        wide_df.columns = [f"{col}_{name}" for col, name in wide_df.columns]
+        wide_df = wide_df.reset_index().rename(columns={'fold': 'folds'})
+        final_df = final_df.merge(wide_df, on='folds', how='left')
     if len(folds) != args.k:
         save_name = 'summary_partial_{}_{}.csv'.format(folds[0], folds[-1])
     else:

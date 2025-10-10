@@ -3,24 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterator, Mapping, Optional, Sequence
+from typing import Dict, Iterator, Mapping, Optional, Sequence, Set
 
 import h5py
 import numpy as np
 import torch
-from sklearn.metrics import (
-    average_precision_score,
-    balanced_accuracy_score,
-    f1_score,
-    ndcg_score,
-)
+from sklearn.metrics import average_precision_score, balanced_accuracy_score, f1_score
+
+
+INSTANCE_EXPLANATION_TYPES: Set[str] = {"learn", "learn-modified", "learn-plus"}
+ATTENTION_EXPLANATION_TYPES: Set[str] = {
+    "int-attn-coeff",
+    "int-built-in",
+    "int-computed",
+    "int-clf",
+}
+ALL_EXPLANATION_TYPES: Set[str] = INSTANCE_EXPLANATION_TYPES | ATTENTION_EXPLANATION_TYPES
 
 
 @dataclass
 class ExplainabilityMetrics:
-    """Container for aggregated explainability scores."""
+    """Container for aggregated explainability scores for a single explanation name."""
 
     explanation_type: str
+    metric_family: str
     evaluated_class: Optional[int]
     model_mode: str
     num_slides: int
@@ -30,11 +36,12 @@ class ExplainabilityMetrics:
     instance_macro_f1: Optional[float]
     instance_balanced_accuracy: Optional[float]
     attention_ndcg: Optional[float]
-    attention_auprc: Optional[float]
+    attention_auprc2: Optional[float]
 
     def to_dict(self) -> Dict[str, Optional[float]]:
         record: Dict[str, Optional[float]] = {
             "explanation_type": self.explanation_type,
+            "metric_family": self.metric_family,
             "evaluated_class": self.evaluated_class,
             "model_mode": self.model_mode,
             "num_slides": float(self.num_slides),
@@ -44,7 +51,9 @@ class ExplainabilityMetrics:
             "instance_macro_f1": self.instance_macro_f1,
             "instance_balanced_accuracy": self.instance_balanced_accuracy,
             "attention_ndcg": self.attention_ndcg,
-            "attention_auprc": self.attention_auprc,
+            "attention_ndgcn": self.attention_ndcg,
+            "attention_auprc2": self.attention_auprc2,
+            "attention_auprc": self.attention_auprc2,
         }
         return record
 
@@ -73,6 +82,27 @@ def _resolve_data_dir(dataset, slide_row: Mapping[str, object]) -> str:
             f"Got {data_dir!r}"
         )
     return data_dir
+
+
+def _parse_explanation_request(selection: str) -> Set[str]:
+    """Normalise the user provided explanation selection string."""
+
+    if not selection:
+        return set()
+
+    tokens = {token.strip().lower() for token in selection.split(",") if token.strip()}
+    if not tokens:
+        return set()
+    if "all" in tokens:
+        tokens = set(ALL_EXPLANATION_TYPES)
+    unknown = tokens - ALL_EXPLANATION_TYPES
+    if unknown:
+        raise ValueError(
+            "Unsupported explanation types {}. Expected any of {} or 'all'.".format(
+                sorted(unknown), sorted(ALL_EXPLANATION_TYPES)
+            )
+        )
+    return tokens
 
 
 def iter_explainability_batches(dataset) -> Iterator[Dict[str, object]]:
@@ -149,17 +179,52 @@ def _normalise_attention(attention: torch.Tensor) -> np.ndarray:
     return values
 
 
+def _compute_ndgcn(ground_truth: np.ndarray, attention_values: np.ndarray) -> float:
+    """Compute the NDCGN score following the reference implementation."""
+
+    # Convert inputs to double precision arrays to avoid surprises when dividing
+    # small values. ``ground_truth`` may contain both positive and negative
+    # scores; only positive evidence should contribute to the gain of a patch.
+    relevance = np.maximum(ground_truth.astype(np.float64, copy=False), 0.0)
+    scores = attention_values.astype(np.float64, copy=False)
+
+    if relevance.size == 0:
+        return 0.0
+
+    # Sort patches by the attention weight assigned by the model.
+    ranked_indices = np.argsort(scores)[::-1]
+    ranked_relevance = relevance[ranked_indices]
+
+    # Positions are 1-indexed in the logarithmic discount term. We use the
+    # ``log2(i + 2)`` formulation so that the top-ranked element is divided by
+    # ``log2(2) = 1``.
+    positions = np.arange(ranked_relevance.size, dtype=np.float64)
+    discounts = np.log2(positions + 2.0)
+
+    dcg = float(np.sum(ranked_relevance / discounts))
+
+    # Compute the ideal DCG by ordering patches based on the ground-truth
+    # relevance, ensuring we divide by the same discount factors as above.
+    ideal_indices = np.argsort(relevance)[::-1]
+    ideal_relevance = relevance[ideal_indices]
+    ideal_dcg = float(np.sum(ideal_relevance / discounts))
+
+    if ideal_dcg == 0.0:
+        return 0.0
+    return dcg / ideal_dcg
+
+
 def evaluate_explainability(
     model: torch.nn.Module,
     dataset,
     *,
     model_type: str,
-    explanation_type: str = "both",
+    explanation_type: str = "all",
     evaluated_class: Optional[int] = None,
     model_mode: str = "validation",
     device: Optional[torch.device] = None,
-) -> ExplainabilityMetrics:
-    """Compute interpretability metrics for a trained model on a dataset.
+) -> Sequence[ExplainabilityMetrics]:
+    """Compute interpretability metrics for one or more explanation names.
 
     Parameters
     ----------
@@ -171,8 +236,11 @@ def evaluate_explainability(
         Model identifier, used to route spatial-variant models that expect
         coordinates and slide dimensions.
     explanation_type:
-        Which group of metrics to compute. Accepted values: ``"instance"``,
-        ``"attention"``, or ``"both"``.
+        Comma separated list of explanation names. Supported instance-centric
+        names: ``learn``, ``learn-modified`` and ``learn-plus``. Supported
+        attention-centric names: ``int-attn-coeff``, ``int-built-in``,
+        ``int-computed`` and ``int-clf``. The special value ``all`` evaluates
+        every available name.
     evaluated_class:
         Optional class index used when reducing multi-class scores to binary.
         When ``None``, instance metrics fall back to macro-averaging across all
@@ -185,22 +253,18 @@ def evaluate_explainability(
         parameter device.
     """
 
-    requested = {item.strip().lower() for item in explanation_type.split(",")}
-    if "both" in requested:
-        requested = {"instance", "attention"}
-    valid = {"instance", "attention"}
-    if not requested.issubset(valid):
-        raise ValueError(
-            f"Unsupported explanation types {requested - valid}. "
-            "Expected any combination of 'instance' and 'attention'."
-        )
-    should_compute_instance = "instance" in requested
-    should_compute_attention = "attention" in requested
+    requested = _parse_explanation_request(explanation_type)
+    if not requested:
+        return []
+
+    should_compute_instance = bool(requested & INSTANCE_EXPLANATION_TYPES)
+    should_compute_attention = bool(requested & ATTENTION_EXPLANATION_TYPES)
 
     if device is None:
         device = next(model.parameters()).device
 
     validation_flag = model_mode.lower() in {"validation", "val", "eval", "evaluation", "test"}
+    total_slides = len(dataset.slide_data)
 
     instance_targets: list[np.ndarray] = []
     instance_predictions: list[np.ndarray] = []
@@ -208,21 +272,28 @@ def evaluate_explainability(
     num_instances_evaluated = 0
 
     ndcg_scores: list[float] = []
-    auprc_scores: list[float] = []
+    auprc2_scores: list[float] = []
     num_slides_with_evidence = 0
 
     model.eval()
 
     for batch in iter_explainability_batches(dataset):
+        # Move slide features to the evaluation device. The features are stored
+        # as NumPy arrays in the HDF5 files; we reuse the existing memory when
+        # converting to ``float32`` to avoid unnecessary copies.
         features = batch["features"].astype(np.float32, copy=False)
         features_tensor = torch.from_numpy(features).to(device)
 
+        # Every forward pass must request ``return_instance_outputs`` so that we
+        # have access to the per-patch logits and attention coefficients.
         forward_kwargs = {"validation": validation_flag, "return_instance_outputs": True}
         if model_type.endswith("spvis"):
             coords = batch["coords"]
             height = batch.get("height")
             width = batch.get("width")
             if height is None or width is None:
+                # Some datasets do not store the canvas size; fall back to the
+                # maximal coordinates observed in the slide as an approximation.
                 coords_array = np.asarray(coords)
                 width = int(coords_array[:, 0].max()) if coords_array.size else 0
                 height = int(coords_array[:, 1].max()) if coords_array.size else 0
@@ -250,6 +321,9 @@ def evaluate_explainability(
             instance_labels = batch.get("instance_labels")
             if instance_labels is not None:
                 num_slides_with_instance_labels += 1
+                # Convert logits to discrete predictions and cache both the
+                # predictions and ground-truth targets to aggregate metrics
+                # across slides.
                 logits = instance_logits.detach().cpu()
                 predictions = torch.argmax(logits, dim=1).numpy()
                 targets = np.asarray(instance_labels, dtype=np.int64)
@@ -275,10 +349,40 @@ def evaluate_explainability(
                             f"Evidence length {ground_truth.shape[0]} does not match attention scores "
                             f"{attention_scores.shape[-1]} for slide {batch['slide_id']}"
                         )
+                    # Normalise the attention vector so that it forms a proper
+                    # distribution before computing ranking-based metrics.
                     attention_values = _normalise_attention(attention_scores)
-                    if np.any(ground_truth):
-                        ndcg_scores.append(float(ndcg_score(ground_truth.reshape(1, -1), attention_values.reshape(1, -1))))
-                        auprc_scores.append(float(average_precision_score(ground_truth, attention_values)))
+
+                    # The original study evaluates attention explanations by
+                    # comparing the ranked attention scores against positive
+                    # (supporting) and negative (contradicting) evidence masks.
+                    evidence_pos = (ground_truth > 0).astype(np.int64, copy=False)
+                    evidence_neg = (ground_truth < 0).astype(np.int64, copy=False)
+
+                    auprc_components: list[float] = []
+
+                    # When the slide contains a non-trivial mix of positive and
+                    # non-positive evidence we compute the NDCGN score and the
+                    # positive branch of the AUPRC2 metric.
+                    if 0 < evidence_pos.sum() < evidence_pos.shape[0]:
+                        ndcg_scores.append(
+                            _compute_ndgcn(np.maximum(ground_truth, 0.0), attention_values)
+                        )
+                        auprc_components.append(
+                            float(average_precision_score(evidence_pos, attention_values))
+                        )
+
+                    # The second branch measures how well the attention avoids
+                    # highlighting known negative evidence; this is implemented
+                    # by flipping the attention scores before evaluating the
+                    # precision-recall curve.
+                    if 0 < evidence_neg.sum() < evidence_neg.shape[0]:
+                        auprc_components.append(
+                            float(average_precision_score(evidence_neg, -attention_values))
+                        )
+
+                    if auprc_components:
+                        auprc2_scores.append(float(np.mean(auprc_components)))
                     num_slides_with_evidence += 1
 
     instance_macro_f1: Optional[float]
@@ -287,36 +391,73 @@ def evaluate_explainability(
         flat_targets = np.concatenate(instance_targets)
         flat_preds = np.concatenate(instance_predictions)
         if evaluated_class is None:
-            instance_macro_f1 = float(f1_score(flat_targets, flat_preds, average="macro", zero_division=0))
+            # Multi-class setting: compute the macro F1 across all classes and
+            # the balanced accuracy exactly as implemented in the reference
+            # submission via sklearn.
+            instance_macro_f1 = float(
+                f1_score(flat_targets, flat_preds, average="macro", zero_division=0)
+            )
             instance_balanced_accuracy = float(balanced_accuracy_score(flat_targets, flat_preds))
         else:
+            # Binary reduction: collapse the chosen class against the rest
+            # before applying the sklearn helpers.
             binary_targets = (flat_targets == evaluated_class).astype(np.int64)
             binary_preds = (flat_preds == evaluated_class).astype(np.int64)
-            instance_macro_f1 = float(f1_score(binary_targets, binary_preds, average="binary", zero_division=0))
+            instance_macro_f1 = float(
+                f1_score(binary_targets, binary_preds, average="binary", zero_division=0)
+            )
             instance_balanced_accuracy = float(balanced_accuracy_score(binary_targets, binary_preds))
     else:
         instance_macro_f1 = None
         instance_balanced_accuracy = None
 
     attention_ndcg: Optional[float]
-    attention_auprc: Optional[float]
+    attention_auprc2: Optional[float]
     if should_compute_attention and ndcg_scores:
         attention_ndcg = float(np.mean(ndcg_scores))
-        attention_auprc = float(np.mean(auprc_scores)) if auprc_scores else None
+        attention_auprc2 = float(np.mean(auprc2_scores)) if auprc2_scores else None
     else:
         attention_ndcg = None
-        attention_auprc = None
+        attention_auprc2 = None
 
-    return ExplainabilityMetrics(
-        explanation_type=",".join(sorted(requested)),
-        evaluated_class=evaluated_class,
-        model_mode=model_mode,
-        num_slides=len(dataset.slide_data),
-        num_slides_with_instance_labels=num_slides_with_instance_labels,
-        num_slides_with_evidence=num_slides_with_evidence,
-        num_instances_evaluated=num_instances_evaluated,
-        instance_macro_f1=instance_macro_f1,
-        instance_balanced_accuracy=instance_balanced_accuracy,
-        attention_ndcg=attention_ndcg,
-        attention_auprc=attention_auprc,
-    )
+    metrics: list[ExplainabilityMetrics] = []
+
+    if should_compute_instance:
+        for name in sorted(requested & INSTANCE_EXPLANATION_TYPES):
+            metrics.append(
+                ExplainabilityMetrics(
+                    explanation_type=name,
+                    metric_family="instance",
+                    evaluated_class=evaluated_class,
+                    model_mode=model_mode,
+                    num_slides=total_slides,
+                    num_slides_with_instance_labels=num_slides_with_instance_labels,
+                    num_slides_with_evidence=num_slides_with_evidence,
+                    num_instances_evaluated=num_instances_evaluated,
+                    instance_macro_f1=instance_macro_f1,
+                    instance_balanced_accuracy=instance_balanced_accuracy,
+                    attention_ndcg=None,
+                    attention_auprc2=None,
+                )
+            )
+
+    if should_compute_attention:
+        for name in sorted(requested & ATTENTION_EXPLANATION_TYPES):
+            metrics.append(
+                ExplainabilityMetrics(
+                    explanation_type=name,
+                    metric_family="attention",
+                    evaluated_class=evaluated_class,
+                    model_mode=model_mode,
+                    num_slides=total_slides,
+                    num_slides_with_instance_labels=num_slides_with_instance_labels,
+                    num_slides_with_evidence=num_slides_with_evidence,
+                    num_instances_evaluated=num_instances_evaluated,
+                    instance_macro_f1=None,
+                    instance_balanced_accuracy=None,
+                    attention_ndcg=attention_ndcg,
+                    attention_auprc2=attention_auprc2,
+                )
+            )
+
+    return metrics
