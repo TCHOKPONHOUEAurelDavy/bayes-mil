@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from datasets.dataset_generic import Generic_WSI_Classification_Dataset, Generic_MIL_Dataset, save_splits
 import h5py
 from utils.eval_utils import *
+from utils.explainability_utils import evaluate_explainability
 
 # Training settings
 parser = argparse.ArgumentParser(description='CLAM Evaluation Script')
@@ -47,9 +48,17 @@ parser.add_argument('--k', type=int, default=10, help='number of folds (default:
 parser.add_argument('--k_start', type=int, default=-1, help='start fold (default: -1, last fold)')
 parser.add_argument('--k_end', type=int, default=-1, help='end fold (default: -1, first fold)')
 parser.add_argument('--fold', type=int, default=-1, help='single fold to evaluate')
-parser.add_argument('--micro_average', action='store_true', default=False, 
+parser.add_argument('--micro_average', action='store_true', default=False,
                     help='use micro_average instead of macro_avearge for multiclass AUC')
 parser.add_argument('--split', type=str, choices=['train', 'val', 'test', 'all'], default='test')
+parser.add_argument('--run-explainability', action='store_true', default=False,
+                    help='Compute interpretability metrics after bag-level evaluation')
+parser.add_argument('--explanation-type', type=str, default='both',
+                    help="Comma separated list selecting 'instance', 'attention', or 'both'")
+parser.add_argument('--explanation-class', type=int, default=None,
+                    help='Optional class index used for binary interpretability metrics')
+parser.add_argument('--explainability-model-mode', type=str, default='validation',
+                    help='Forward-pass mode passed to the explainability helper (default: validation)')
 parser.add_argument(
     '--task',
     type=str,
@@ -203,6 +212,7 @@ if __name__ == "__main__":
     all_auc = []
     all_acc = []
     all_f1 = []
+    explainability_rows = []
     for ckpt_idx in range(len(ckpt_paths)):
         if datasets_id[args.split] < 0:
             split_dataset = dataset
@@ -219,11 +229,35 @@ if __name__ == "__main__":
         all_f1.append(f1)
         df.to_csv(os.path.join(args.save_dir, 'fold_{}.csv'.format(folds[ckpt_idx])), index=False)
 
-        # for retriving the uncertainties
-        
-
+        if args.run_explainability:
+            try:
+                explainability = evaluate_explainability(
+                    model,
+                    split_dataset,
+                    model_type=args.model_type,
+                    explanation_type=args.explanation_type,
+                    evaluated_class=args.explanation_class,
+                    model_mode=args.explainability_model_mode,
+                )
+                explainability_record = explainability.to_dict()
+                explainability_record.update({'fold': folds[ckpt_idx]})
+                explainability_rows.append(explainability_record)
+                pd.DataFrame([explainability_record]).replace({None: np.nan}).to_csv(
+                    os.path.join(args.save_dir, 'fold_{}_explainability.csv'.format(folds[ckpt_idx])),
+                    index=False,
+                )
+            except (OSError, KeyError, ValueError, RuntimeError) as err:
+                print(f"Explainability evaluation skipped for fold {folds[ckpt_idx]}: {err}")
 
     final_df = pd.DataFrame({'folds': folds, 'test_auc': all_auc, 'test_acc': all_acc, 'test_f1': all_f1})
+    if explainability_rows:
+        explainability_df = pd.DataFrame(explainability_rows).replace({None: np.nan})
+        explainability_df.to_csv(os.path.join(args.save_dir, 'explainability_summary.csv'), index=False)
+        explainability_lookup = explainability_df.set_index('fold')
+        for column in explainability_df.columns:
+            if column == 'fold':
+                continue
+            final_df[column] = final_df['folds'].map(explainability_lookup[column])
     if len(folds) != args.k:
         save_name = 'summary_partial_{}_{}.csv'.format(folds[0], folds[-1])
     else:
