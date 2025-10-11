@@ -58,8 +58,50 @@ numeric `label` column alongside a human-readable `label_name` column that
 follow the original rule set implemented by the `FourBagsDataset` class. Run
 the command again with a different `--dataset` value to create the other
 variants independently. Refer to
-[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
-and example training commands.
+[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options,
+example training commands, and a short Python walkthrough showing how to inspect the
+generated slides from code.
+
+To preview a handful of MNIST slides directly from Python, run:
+
+```bash
+python examples/mnist_dataset_example.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags --split test --fold 0 --max-slides 3
+```
+
+After training MNIST checkpoints, forward the same dataset and experiment code to
+`examples/mnist_evaluate.py` with `--run-explainability` to export the
+interpretability metrics captured by `eval.py`:
+
+```bash
+python examples/mnist_evaluate.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags \
+    --exp-code mnist_demo \
+    --k 5 \
+    --run-explainability
+```
+
+The helper writes per-fold `_explainability.csv` files under `eval_results/` and
+merges the aggregated metrics into the final summary CSV. The
+`--explanation-type` flag accepts either comma **or whitespace** separated
+values and overrides the automatic defaults. By default the evaluation filters
+the explanation names to the subset supported by the chosen `--model_type`:
+
+* **attention_mil** models (`bmil-vis`, `bmil-enc`, `bmil-spvis`, etc.) evaluate
+  `learn`, `int-attn-coeff`, and `int-computed`.
+* **additive_mil** models (`bmil-addvis`, `bmil-addenc`, `bmil-addspvis`) add the
+  `int-built-in` explanation.
+* **conjunctive_mil** models (`bmil-conjvis`, `bmil-convis`, `bmil-conjenc`,
+  `bmil-conenc`, `bmil-conjspvis`, `bmil-conspvis`) use `learn`,
+  `int-attn-coeff`, and `int-built-in`.
+* **trans_mil** models default to `learn`, `int-attn-coeff`, and `int-computed`.
+
+Each record now includes the checkpoint filename in a `model_identifier`
+column, and the CLI prints a one-line summary for every
+`(model_identifier, explanation_type)` pair so you can immediately see which
+interpretability method was applied to each model.
 
 ## Training
 1. Modify the format of the input data.
@@ -130,6 +172,30 @@ By adding your own custom datasets into `eval.py` the same way as you do for `ma
 ```bash
 CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR
 ```
+
+### Explainability add-on
+
+The evaluation script can optionally compute the instance-level and attention-based
+interpretability metrics that mirror the reference leaderboard submission. Enable
+this pass with `--run-explainability`; the command below evaluates the same model
+checkpoint while writing per-fold interpretability CSV files alongside the
+standard bag-level summary.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR --run-explainability --explanation-type all --explainability-model-mode validation
+```
+
+Key flags:
+
+* `--run-explainability`: toggles the interpretability evaluation.
+* `--explanation-type`: comma or whitespace separated list of explanation heads
+  to score (e.g. `learn learn-plus int-attn-coeff`) or `all` to request every
+  explanation supported by the selected model architecture.
+* The script automatically filters unsupported explanation names for the chosen
+  `--model_type` and reports the effective selection before running the
+  interpretability pass.
+* `--explainability-model-mode`: forwarded to the model so the same evaluation
+  code can be used across `validation`, `test`, or any custom forward modes.
 
 ## Heatmap Visualization
 

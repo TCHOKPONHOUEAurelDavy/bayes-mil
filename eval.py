@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from datasets.dataset_generic import Generic_WSI_Classification_Dataset, Generic_MIL_Dataset, save_splits
 import h5py
 from utils.eval_utils import *
+from utils.explainability_utils import evaluate_explainability, resolve_explanation_selection
 
 # Training settings
 parser = argparse.ArgumentParser(description='CLAM Evaluation Script')
@@ -47,9 +48,20 @@ parser.add_argument('--k', type=int, default=10, help='number of folds (default:
 parser.add_argument('--k_start', type=int, default=-1, help='start fold (default: -1, last fold)')
 parser.add_argument('--k_end', type=int, default=-1, help='end fold (default: -1, first fold)')
 parser.add_argument('--fold', type=int, default=-1, help='single fold to evaluate')
-parser.add_argument('--micro_average', action='store_true', default=False, 
+parser.add_argument('--micro_average', action='store_true', default=False,
                     help='use micro_average instead of macro_avearge for multiclass AUC')
 parser.add_argument('--split', type=str, choices=['train', 'val', 'test', 'all'], default='test')
+parser.add_argument('--run-explainability', action='store_true', default=False,
+                    help='Compute interpretability metrics after bag-level evaluation')
+parser.add_argument(
+    '--explanation-type',
+    type=str,
+    default='all',
+    help='Comma separated list of explanation names (learn, learn-modified, learn-plus, '
+    'int-attn-coeff, int-built-in, int-computed, int-clf) or "all".',
+)
+parser.add_argument('--explainability-model-mode', type=str, default='validation',
+                    help='Forward-pass mode passed to the explainability helper (default: validation)')
 parser.add_argument(
     '--task',
     type=str,
@@ -203,6 +215,7 @@ if __name__ == "__main__":
     all_auc = []
     all_acc = []
     all_f1 = []
+    explainability_rows = []
     for ckpt_idx in range(len(ckpt_paths)):
         if datasets_id[args.split] < 0:
             split_dataset = dataset
@@ -219,11 +232,95 @@ if __name__ == "__main__":
         all_f1.append(f1)
         df.to_csv(os.path.join(args.save_dir, 'fold_{}.csv'.format(folds[ckpt_idx])), index=False)
 
-        # for retriving the uncertainties
-        
+        if args.run_explainability:
+            try:
+                checkpoint_name = os.path.basename(ckpt_paths[ckpt_idx])
+                selection = resolve_explanation_selection(args.model_type, args.explanation_type)
+                instance_types = sorted(selection.instance)
+                attention_types = sorted(selection.attention)
+                if not instance_types and not attention_types:
+                    requested_str = ", ".join(sorted(selection.requested)) if selection.requested else "(default)"
+                    print(
+                        "Explainability evaluation skipped for model '{model}' because the requested "
+                        "types {types} are not supported by model_type {model_type}.".format(
+                            model=checkpoint_name,
+                            types=requested_str,
+                            model_type=args.model_type,
+                        )
+                    )
+                    continue
 
+                summary_bits = []
+                if instance_types:
+                    summary_bits.append(f"instance={', '.join(instance_types)}")
+                if attention_types:
+                    summary_bits.append(f"attention={', '.join(attention_types)}")
+                print(
+                    "Explainability selection for model '{model}' ({model_type}): {summary}.".format(
+                        model=checkpoint_name,
+                        model_type=args.model_type,
+                        summary="; ".join(summary_bits) if summary_bits else "none",
+                    )
+                )
+                if selection.ignored:
+                    print(
+                        "Ignored unsupported explanation names for {model_type}: {names}.".format(
+                            model_type=args.model_type,
+                            names=", ".join(sorted(selection.ignored)),
+                        )
+                    )
+                explainability_results = evaluate_explainability(
+                    model,
+                    split_dataset,
+                    model_type=args.model_type,
+                    explanation_type=args.explanation_type,
+                    model_mode=args.explainability_model_mode,
+                    model_identifier=checkpoint_name,
+                )
+                if explainability_results:
+                    fold_records = []
+                    for metrics in explainability_results:
+                        record = metrics.to_dict()
+                        record.update({'fold': folds[ckpt_idx]})
+                        fold_records.append(record)
+                        explainability_rows.append(record)
+                        print(
+                            "Explainability metrics for model '{model}' using '{expl}' explanation: "
+                            "family={family}, macro_f1={macro}, bal_acc={bal}, ndcg={ndcg}, auprc2={auprc}".format(
+                                model=record.get("model_identifier", "unknown"),
+                                expl=record.get("explanation_type", "unknown"),
+                                family=record.get("metric_family", "unknown"),
+                                macro=record.get("instance_macro_f1"),
+                                bal=record.get("instance_balanced_accuracy"),
+                                ndcg=record.get("attention_ndcg"),
+                                auprc=record.get("attention_auprc2"),
+                            )
+                        )
+                    pd.DataFrame(fold_records).replace({None: np.nan}).to_csv(
+                        os.path.join(args.save_dir, 'fold_{}_explainability.csv'.format(folds[ckpt_idx])),
+                        index=False,
+                    )
+                else:
+                    print(
+                        f"Explainability evaluation produced no metrics for fold {folds[ckpt_idx]} "
+                        "(no supported explanation names requested)."
+                    )
+            except (OSError, KeyError, ValueError, RuntimeError) as err:
+                print(f"Explainability evaluation skipped for fold {folds[ckpt_idx]}: {err}")
 
     final_df = pd.DataFrame({'folds': folds, 'test_auc': all_auc, 'test_acc': all_acc, 'test_f1': all_f1})
+    if explainability_rows:
+        explainability_df = pd.DataFrame(explainability_rows).replace({None: np.nan})
+        explainability_df.to_csv(os.path.join(args.save_dir, 'explainability_summary.csv'), index=False)
+        pivot_df = (
+            explainability_df
+            .set_index(['fold', 'explanation_type'])
+            .sort_index()
+        )
+        wide_df = pivot_df.unstack('explanation_type')
+        wide_df.columns = [f"{col}_{name}" for col, name in wide_df.columns]
+        wide_df = wide_df.reset_index().rename(columns={'fold': 'folds'})
+        final_df = final_df.merge(wide_df, on='folds', how='left')
     if len(folds) != args.k:
         save_name = 'summary_partial_{}_{}.csv'.format(folds[0], folds[-1])
     else:

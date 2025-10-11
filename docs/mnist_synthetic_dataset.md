@@ -87,6 +87,35 @@ Use `--split` to inspect `train`, `val`, `test`, or `all`, and `--fold` to
 restrict evaluation to a single fold. The helper automatically points to the
 MNIST split directory so no additional configuration is required.
 
+To evaluate interpretability metrics on the same folds, append
+`--run-explainability` and optionally tailor the requested explanation family:
+
+```bash
+python examples/mnist_evaluate.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --results-dir results \
+    --task mnist_fourbags \
+    --exp-code mnist_demo \
+    --k 5 \
+    --run-explainability \
+    --explanation-type "learn,int-attn-coeff"
+```
+
+The command forwards the explainability flags to `eval.py`, which writes a
+per-fold CSV suffixed with `_explainability` alongside the usual metrics. The
+summary CSV aggregates macro-F1, balanced accuracy, NDCGN, and AUPRC2 for each
+requested explanation name using the slide label to select the relevant
+evidence. Pass any of the study-aligned explanation names (`learn`,
+`learn-modified`, `learn-plus`, `int-attn-coeff`, `int-built-in`,
+`int-computed`, `int-clf`) to focus on a subset. The flag accepts comma or
+whitespace separated values and defaults to the explanation bundle associated
+with the selected model family: `attention_mil` checkpoints (`bmil-vis`,
+`bmil-enc`, `bmil-spvis`, …) use `learn`, `int-attn-coeff`, and `int-computed`;
+`additive_mil` models add `int-built-in`; `conjunctive_mil` variants
+(`bmil-conjvis`, `bmil-convis`, `bmil-conjenc`, `bmil-conenc`, `bmil-conjspvis`,
+`bmil-conspvis`) rely on `learn`, `int-attn-coeff`, and `int-built-in`; and
+`trans_mil` models mirror the `learn`, `int-attn-coeff`, `int-computed` trio.
+
 ### 2.3 Save heatmaps
 
 To mimic the original BayesMIL behaviour and export heatmaps for every slide in
@@ -110,6 +139,77 @@ already present. When switching between tasks, rerun the training and evaluation
 helpers with the matching `--task` flag so that the checkpoint and split
 metadata agree on the number of classes. The heatmap export utility validates
 this and raises a clear error if a mismatch is detected.
+
+### 2.4 Inspect the dataset from Python
+
+If you prefer working inside a notebook or a standalone Python script, the
+project ships with `examples/mnist_dataset_example.py`. The helper loads one
+task, applies a fold/split filter, and iterates over the slides using the same
+`iter_explainability_batches` generator that powers the explainability metrics.
+
+```bash
+python examples/mnist_dataset_example.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags --split test --fold 0 --max-slides 3
+```
+
+The script is intentionally compact; the snippet below replicates its core logic
+so you can adapt it inside your own modules:
+
+```python
+from pathlib import Path
+
+import pandas as pd
+
+from datasets.dataset_generic import Generic_MIL_Dataset, Generic_Split
+from utils.explainability_utils import iter_explainability_batches
+
+dataset_root = Path("/path/to/mnist_mil_dataset")
+task = "mnist_fourbags"
+fold = 0
+split = "test"
+
+csv_path = dataset_root / f"{task}.csv"
+label_frame = pd.read_csv(csv_path)
+label_dict = (
+    label_frame.drop_duplicates("label_name")
+    .set_index("label_name")["label"]
+    .astype(int)
+    .to_dict()
+)
+
+base_dataset = Generic_MIL_Dataset(
+    csv_path=str(csv_path),
+    data_dir=str(dataset_root),
+    shuffle=False,
+    print_info=False,
+    label_dict=label_dict,
+    patient_strat=False,
+    ignore=[],
+    label_col="label_name",
+)
+
+split_csv = dataset_root / "splits" / task / f"splits_{fold}_bool.csv"
+split_frame = pd.read_csv(split_csv)
+mask = split_frame[split].fillna(False).astype(bool)
+selected_ids = (
+    split_frame.loc[mask, "slide_id"].dropna().astype(str)
+)
+
+filtered = base_dataset.slide_data[
+    base_dataset.slide_data["slide_id"].isin(selected_ids)
+].reset_index(drop=True)
+dataset = Generic_Split(
+    filtered,
+    data_dir=str(dataset_root),
+    shape_dict=base_dataset.shape_dict,
+    num_classes=base_dataset.num_classes,
+    use_h5=True,
+)
+
+for slide in iter_explainability_batches(dataset):
+    print(slide["slide_id"], slide["features"].shape)
+```
 
 ## 3. Visualise a single synthetic slide
 
