@@ -54,16 +54,10 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default='all',
         help=(
-            'Comma separated list of explanation names to evaluate. Matches the options '
-            'consumed by eval.py (learn, learn-modified, learn-plus, int-attn-coeff, '
-            'int-built-in, int-computed, int-clf, or "all").'
+            'Comma or whitespace separated list of explanation names to evaluate. '
+            'Matches the options consumed by eval.py (learn, learn-modified, '
+            'learn-plus, int-attn-coeff, int-built-in, int-computed, int-clf, or "all").'
         ),
-    )
-    parser.add_argument(
-        '--explanation-class',
-        type=int,
-        default=None,
-        help='Optional class index used to collapse multi-class metrics to binary.',
     )
     parser.add_argument(
         '--explainability-model-mode',
@@ -113,8 +107,6 @@ def main() -> None:
     if args.run_explainability:
         cmd.append('--run-explainability')
         cmd.extend(['--explanation-type', args.explanation_type])
-        if args.explanation_class is not None:
-            cmd.extend(['--explanation-class', str(args.explanation_class)])
         cmd.extend([
             '--explainability-model-mode',
             args.explainability_model_mode,

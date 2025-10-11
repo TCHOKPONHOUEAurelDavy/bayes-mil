@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterator, Mapping, Optional, Sequence, Set
+from typing import Dict, FrozenSet, Iterator, Mapping, Optional, Sequence, Set
 
 import h5py
 import numpy as np
 import torch
 from sklearn.metrics import average_precision_score, balanced_accuracy_score, f1_score
+import re
 
 
 INSTANCE_EXPLANATION_TYPES: Set[str] = {"learn", "learn-modified", "learn-plus"}
@@ -21,14 +22,62 @@ ATTENTION_EXPLANATION_TYPES: Set[str] = {
 ALL_EXPLANATION_TYPES: Set[str] = INSTANCE_EXPLANATION_TYPES | ATTENTION_EXPLANATION_TYPES
 
 
+# Mapping from high-level model families to the explanation heads they expose.
+MODEL_EXPLANATION_GROUPS: Dict[str, FrozenSet[str]] = {
+    "attention_mil": frozenset({"learn", "int-attn-coeff", "int-computed"}),
+    "additive_mil": frozenset({"learn", "int-attn-coeff", "int-built-in", "int-computed"}),
+    "conjunctive_mil": frozenset({"learn", "int-attn-coeff", "int-built-in"}),
+    "trans_mil": frozenset({"learn", "int-attn-coeff", "int-computed"}),
+}
+
+
+# Alias table allowing different model identifiers to share the same explanation
+# configuration. The keys are normalised to lower-case before lookup.
+MODEL_TYPE_GROUPS: Dict[str, str] = {
+    # Explicit experiment scripts.
+    "attention_mil": "attention_mil",
+    "attention-mil": "attention_mil",
+    "additive_mil": "additive_mil",
+    "additive-mil": "additive_mil",
+    "conjunctive_mil": "conjunctive_mil",
+    "conjunctive-mil": "conjunctive_mil",
+    "trans_mil": "trans_mil",
+    "trans-mil": "trans_mil",
+}
+
+
+# Map the Bayes-MIL CLI model suffixes onto the same explanation group labels.
+_BMIL_SUFFIX_GROUPS: Dict[str, Set[str]] = {
+    "attention_mil": {"vis", "enc", "spvis", "a", "f"},
+    "additive_mil": {"addvis", "addenc", "addspvis"},
+    "conjunctive_mil": {"conjvis", "convis", "conjenc", "conenc", "conjspvis", "conspvis"},
+}
+
+for group_name, suffixes in _BMIL_SUFFIX_GROUPS.items():
+    for suffix in suffixes:
+        MODEL_TYPE_GROUPS[f"bmil-{suffix}"] = group_name
+        MODEL_TYPE_GROUPS[f"bmil_{suffix}"] = group_name
+
+
+@dataclass(frozen=True)
+class ExplanationSelection:
+    """Describe which explanation heads will be evaluated for a model."""
+
+    requested: FrozenSet[str]
+    available: FrozenSet[str]
+    instance: FrozenSet[str]
+    attention: FrozenSet[str]
+    ignored: FrozenSet[str]
+
+
 @dataclass
 class ExplainabilityMetrics:
     """Container for aggregated explainability scores for a single explanation name."""
 
     explanation_type: str
     metric_family: str
-    evaluated_class: Optional[int]
     model_mode: str
+    model_identifier: Optional[str] = None
     num_slides: int
     num_slides_with_instance_labels: int
     num_slides_with_evidence: int
@@ -42,8 +91,8 @@ class ExplainabilityMetrics:
         record: Dict[str, Optional[float]] = {
             "explanation_type": self.explanation_type,
             "metric_family": self.metric_family,
-            "evaluated_class": self.evaluated_class,
             "model_mode": self.model_mode,
+            "model_identifier": self.model_identifier,
             "num_slides": float(self.num_slides),
             "num_slides_with_instance_labels": float(self.num_slides_with_instance_labels),
             "num_slides_with_evidence": float(self.num_slides_with_evidence),
@@ -90,7 +139,11 @@ def _parse_explanation_request(selection: str) -> Set[str]:
     if not selection:
         return set()
 
-    tokens = {token.strip().lower() for token in selection.split(",") if token.strip()}
+    tokens = {
+        token.strip().lower()
+        for token in re.split(r"[\s,]+", selection)
+        if token.strip()
+    }
     if not tokens:
         return set()
     if "all" in tokens:
@@ -103,6 +156,55 @@ def _parse_explanation_request(selection: str) -> Set[str]:
             )
         )
     return tokens
+
+
+def _resolve_model_explanations(model_type: Optional[str]) -> Set[str]:
+    """Return the explanation heads supported by the requested model."""
+
+    if not model_type:
+        return set(ALL_EXPLANATION_TYPES)
+
+    key = model_type.lower()
+    group_name = MODEL_TYPE_GROUPS.get(key)
+
+    if group_name is None:
+        # Retry using underscore-delimited keys so "bmil-vis" and "bmil_vis"
+        # both map to the same configuration.  Unknown model names fall back to
+        # the full explanation set to remain backward compatible.
+        underscore_key = key.replace("-", "_")
+        group_name = MODEL_TYPE_GROUPS.get(underscore_key)
+
+    if group_name is None:
+        return set(ALL_EXPLANATION_TYPES)
+
+    return set(MODEL_EXPLANATION_GROUPS.get(group_name, ALL_EXPLANATION_TYPES))
+
+
+def resolve_explanation_selection(model_type: str, explanation_type: str) -> ExplanationSelection:
+    """Resolve the explanation heads that should be evaluated for a model."""
+
+    requested = _parse_explanation_request(explanation_type)
+    available = _resolve_model_explanations(model_type)
+
+    available_instance = available & INSTANCE_EXPLANATION_TYPES
+    available_attention = available & ATTENTION_EXPLANATION_TYPES
+
+    if requested:
+        instance = requested & available_instance
+        attention = requested & available_attention
+    else:
+        instance = set(available_instance)
+        attention = set(available_attention)
+
+    ignored = requested - (instance | attention)
+
+    return ExplanationSelection(
+        requested=frozenset(requested),
+        available=frozenset(available),
+        instance=frozenset(instance),
+        attention=frozenset(attention),
+        ignored=frozenset(ignored),
+    )
 
 
 def iter_explainability_batches(dataset) -> Iterator[Dict[str, object]]:
@@ -220,8 +322,8 @@ def evaluate_explainability(
     *,
     model_type: str,
     explanation_type: str = "all",
-    evaluated_class: Optional[int] = None,
     model_mode: str = "validation",
+    model_identifier: Optional[str] = None,
     device: Optional[torch.device] = None,
 ) -> Sequence[ExplainabilityMetrics]:
     """Compute interpretability metrics for one or more explanation names.
@@ -241,24 +343,26 @@ def evaluate_explainability(
         attention-centric names: ``int-attn-coeff``, ``int-built-in``,
         ``int-computed`` and ``int-clf``. The special value ``all`` evaluates
         every available name.
-    evaluated_class:
-        Optional class index used when reducing multi-class scores to binary.
-        When ``None``, instance metrics fall back to macro-averaging across all
-        available classes and attention metrics default to the slide label.
     model_mode:
         Keyword indicating the forward-pass mode. ``"validation"`` enables the
         evaluation branches in the models.
+    model_identifier:
+        Optional string stored alongside the aggregated metrics so downstream
+        consumers can trace which checkpoint produced each explanation.
     device:
         Torch device for running inference. Defaults to the model's first
         parameter device.
     """
 
-    requested = _parse_explanation_request(explanation_type)
-    if not requested:
+    selection = resolve_explanation_selection(model_type, explanation_type)
+    selected_instance_types = sorted(selection.instance)
+    selected_attention_types = sorted(selection.attention)
+
+    if not selected_instance_types and not selected_attention_types:
         return []
 
-    should_compute_instance = bool(requested & INSTANCE_EXPLANATION_TYPES)
-    should_compute_attention = bool(requested & ATTENTION_EXPLANATION_TYPES)
+    should_compute_instance = bool(selected_instance_types)
+    should_compute_attention = bool(selected_attention_types)
 
     if device is None:
         device = next(model.parameters()).device
@@ -339,9 +443,7 @@ def evaluate_explainability(
         if should_compute_attention and attention_scores is not None:
             evidence = batch.get("evidence")
             if isinstance(evidence, Mapping) and evidence:
-                class_id = evaluated_class
-                if class_id is None:
-                    class_id = int(batch["label"])
+                class_id = int(batch["label"])
                 if class_id in evidence:
                     ground_truth = np.asarray(evidence[class_id], dtype=np.float32)
                     if ground_truth.shape[0] != attention_scores.shape[-1]:
@@ -390,23 +492,13 @@ def evaluate_explainability(
     if should_compute_instance and instance_targets:
         flat_targets = np.concatenate(instance_targets)
         flat_preds = np.concatenate(instance_predictions)
-        if evaluated_class is None:
-            # Multi-class setting: compute the macro F1 across all classes and
-            # the balanced accuracy exactly as implemented in the reference
-            # submission via sklearn.
-            instance_macro_f1 = float(
-                f1_score(flat_targets, flat_preds, average="macro", zero_division=0)
-            )
-            instance_balanced_accuracy = float(balanced_accuracy_score(flat_targets, flat_preds))
-        else:
-            # Binary reduction: collapse the chosen class against the rest
-            # before applying the sklearn helpers.
-            binary_targets = (flat_targets == evaluated_class).astype(np.int64)
-            binary_preds = (flat_preds == evaluated_class).astype(np.int64)
-            instance_macro_f1 = float(
-                f1_score(binary_targets, binary_preds, average="binary", zero_division=0)
-            )
-            instance_balanced_accuracy = float(balanced_accuracy_score(binary_targets, binary_preds))
+        # Multi-class setting: compute the macro F1 across all classes and the
+        # balanced accuracy exactly as implemented in the reference submission
+        # via sklearn.
+        instance_macro_f1 = float(
+            f1_score(flat_targets, flat_preds, average="macro", zero_division=0)
+        )
+        instance_balanced_accuracy = float(balanced_accuracy_score(flat_targets, flat_preds))
     else:
         instance_macro_f1 = None
         instance_balanced_accuracy = None
@@ -423,12 +515,11 @@ def evaluate_explainability(
     metrics: list[ExplainabilityMetrics] = []
 
     if should_compute_instance:
-        for name in sorted(requested & INSTANCE_EXPLANATION_TYPES):
+        for name in selected_instance_types:
             metrics.append(
                 ExplainabilityMetrics(
                     explanation_type=name,
                     metric_family="instance",
-                    evaluated_class=evaluated_class,
                     model_mode=model_mode,
                     num_slides=total_slides,
                     num_slides_with_instance_labels=num_slides_with_instance_labels,
@@ -438,17 +529,18 @@ def evaluate_explainability(
                     instance_balanced_accuracy=instance_balanced_accuracy,
                     attention_ndcg=None,
                     attention_auprc2=None,
+                    model_identifier=model_identifier,
                 )
             )
 
     if should_compute_attention:
-        for name in sorted(requested & ATTENTION_EXPLANATION_TYPES):
+        for name in selected_attention_types:
             metrics.append(
                 ExplainabilityMetrics(
                     explanation_type=name,
                     metric_family="attention",
-                    evaluated_class=evaluated_class,
                     model_mode=model_mode,
+                    model_identifier=model_identifier,
                     num_slides=total_slides,
                     num_slides_with_instance_labels=num_slides_with_instance_labels,
                     num_slides_with_evidence=num_slides_with_evidence,

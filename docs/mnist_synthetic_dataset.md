@@ -88,8 +88,7 @@ restrict evaluation to a single fold. The helper automatically points to the
 MNIST split directory so no additional configuration is required.
 
 To evaluate interpretability metrics on the same folds, append
-`--run-explainability` and optionally tailor the requested explanation family
-and class reduction:
+`--run-explainability` and optionally tailor the requested explanation family:
 
 ```bash
 python examples/mnist_evaluate.py \
@@ -99,17 +98,23 @@ python examples/mnist_evaluate.py \
     --exp-code mnist_demo \
     --k 5 \
     --run-explainability \
-    --explanation-type "learn,int-attn-coeff" \
-    --explanation-class 1
+    --explanation-type "learn,int-attn-coeff"
 ```
 
 The command forwards the explainability flags to `eval.py`, which writes a
 per-fold CSV suffixed with `_explainability` alongside the usual metrics. The
 summary CSV aggregates macro-F1, balanced accuracy, NDCGN, and AUPRC2 for each
-requested explanation name. Omit `--explanation-class` to report macro-averaged
-instance scores and label-driven attention metrics, or pass any of the
-study-aligned explanation names (`learn`, `learn-modified`, `learn-plus`,
-`int-attn-coeff`, `int-built-in`, `int-computed`, `int-clf`) to focus on a subset.
+requested explanation name using the slide label to select the relevant
+evidence. Pass any of the study-aligned explanation names (`learn`,
+`learn-modified`, `learn-plus`, `int-attn-coeff`, `int-built-in`,
+`int-computed`, `int-clf`) to focus on a subset. The flag accepts comma or
+whitespace separated values and defaults to the explanation bundle associated
+with the selected model family: `attention_mil` checkpoints (`bmil-vis`,
+`bmil-enc`, `bmil-spvis`, …) use `learn`, `int-attn-coeff`, and `int-computed`;
+`additive_mil` models add `int-built-in`; `conjunctive_mil` variants
+(`bmil-conjvis`, `bmil-convis`, `bmil-conjenc`, `bmil-conenc`, `bmil-conjspvis`,
+`bmil-conspvis`) rely on `learn`, `int-attn-coeff`, and `int-built-in`; and
+`trans_mil` models mirror the `learn`, `int-attn-coeff`, `int-computed` trio.
 
 ### 2.3 Save heatmaps
 
