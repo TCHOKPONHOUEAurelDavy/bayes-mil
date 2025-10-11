@@ -44,6 +44,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--split', choices=['train', 'val', 'test', 'all'], default='test')
     parser.add_argument('--fold', type=int, default=-1, help='Single fold to evaluate (default: all folds).')
     parser.add_argument('--micro-average', action='store_true', help='Use micro-average AUC for multi-class tasks.')
+    parser.add_argument(
+        '--run-explainability',
+        action='store_true',
+        help='Request interpretability metrics after the standard evaluation pass.',
+    )
+    parser.add_argument(
+        '--explanation-type',
+        type=str,
+        default='all',
+        help=(
+            'Comma separated list of explanation names to evaluate. Matches the options '
+            'consumed by eval.py (learn, learn-modified, learn-plus, int-attn-coeff, '
+            'int-built-in, int-computed, int-clf, or "all").'
+        ),
+    )
+    parser.add_argument(
+        '--explanation-class',
+        type=int,
+        default=None,
+        help='Optional class index used to collapse multi-class metrics to binary.',
+    )
+    parser.add_argument(
+        '--explainability-model-mode',
+        type=str,
+        default='validation',
+        help='Forward mode forwarded to eval.py when computing interpretability metrics.',
+    )
     parser.add_argument('--python-bin', default=sys.executable)
     return parser.parse_args()
 
@@ -83,6 +110,15 @@ def main() -> None:
         cmd.append('--drop_out')
     if args.micro_average:
         cmd.append('--micro_average')
+    if args.run_explainability:
+        cmd.append('--run-explainability')
+        cmd.extend(['--explanation-type', args.explanation_type])
+        if args.explanation_class is not None:
+            cmd.extend(['--explanation-class', str(args.explanation_class)])
+        cmd.extend([
+            '--explainability-model-mode',
+            args.explainability_model_mode,
+        ])
 
     print(f"[MNIST evaluation] Launching: {' '.join(cmd)}")
     subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))

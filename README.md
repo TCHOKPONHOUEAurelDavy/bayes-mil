@@ -58,8 +58,35 @@ numeric `label` column alongside a human-readable `label_name` column that
 follow the original rule set implemented by the `FourBagsDataset` class. Run
 the command again with a different `--dataset` value to create the other
 variants independently. Refer to
-[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
-and example training commands.
+[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options,
+example training commands, and a short Python walkthrough showing how to inspect the
+generated slides from code.
+
+To preview a handful of MNIST slides directly from Python, run:
+
+```bash
+python examples/mnist_dataset_example.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags --split test --fold 0 --max-slides 3
+```
+
+After training MNIST checkpoints, forward the same dataset and experiment code to
+`examples/mnist_evaluate.py` with `--run-explainability` to export the
+interpretability metrics captured by `eval.py`:
+
+```bash
+python examples/mnist_evaluate.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags \
+    --exp-code mnist_demo \
+    --k 5 \
+    --run-explainability
+```
+
+The helper writes per-fold `_explainability.csv` files under `eval_results/` and
+merges the aggregated metrics into the final summary CSV. Pass
+`--explanation-type` or `--explanation-class` to mirror the configuration used
+in the submission code.
 
 ## Training
 1. Modify the format of the input data.
@@ -130,6 +157,28 @@ By adding your own custom datasets into `eval.py` the same way as you do for `ma
 ```bash
 CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR
 ```
+
+### Explainability add-on
+
+The evaluation script can optionally compute the instance-level and attention-based
+interpretability metrics that mirror the reference leaderboard submission. Enable
+this pass with `--run-explainability`; the command below evaluates the same model
+checkpoint while writing per-fold interpretability CSV files alongside the
+standard bag-level summary.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python eval.py --drop_out --k 10 --models_exp_code task_1_tumor_vs_normal_CLAM_75 --save_exp_code task_1_tumor_vs_normal_CLAM_75 --task task_1_tumor_vs_normal --model_type bmil-vis --results_dir results --data_root_dir DATA_ROOT_DIR --run-explainability --explanation-type all --explainability-model-mode validation
+```
+
+Key flags:
+
+* `--run-explainability`: toggles the interpretability evaluation.
+* `--explanation-type`: comma separated list of explanation heads to score (e.g.
+  `learn,learn-plus,int-attn-coeff`) or `all` to mirror the full reference set.
+* `--explanation-class`: optional class index passed to the instance metrics when
+  working with multi-class checkpoints.
+* `--explainability-model-mode`: forwarded to the model so the same evaluation
+  code can be used across `validation`, `test`, or any custom forward modes.
 
 ## Heatmap Visualization
 
