@@ -77,7 +77,6 @@ class ExplainabilityMetrics:
     explanation_type: str
     metric_family: str
     model_mode: str
-    model_identifier: Optional[str] = None
     num_slides: int
     num_slides_with_instance_labels: int
     num_slides_with_evidence: int
@@ -86,6 +85,7 @@ class ExplainabilityMetrics:
     instance_balanced_accuracy: Optional[float]
     attention_ndcg: Optional[float]
     attention_auprc2: Optional[float]
+    model_identifier: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Optional[float]]:
         record: Dict[str, Optional[float]] = {
