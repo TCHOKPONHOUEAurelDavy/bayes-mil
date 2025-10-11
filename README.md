@@ -58,8 +58,35 @@ numeric `label` column alongside a human-readable `label_name` column that
 follow the original rule set implemented by the `FourBagsDataset` class. Run
 the command again with a different `--dataset` value to create the other
 variants independently. Refer to
-[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options
-and example training commands.
+[docs/mnist_synthetic_dataset.md](docs/mnist_synthetic_dataset.md) for additional options,
+example training commands, and a short Python walkthrough showing how to inspect the
+generated slides from code.
+
+To preview a handful of MNIST slides directly from Python, run:
+
+```bash
+python examples/mnist_dataset_example.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags --split test --fold 0 --max-slides 3
+```
+
+After training MNIST checkpoints, forward the same dataset and experiment code to
+`examples/mnist_evaluate.py` with `--run-explainability` to export the
+interpretability metrics captured by `eval.py`:
+
+```bash
+python examples/mnist_evaluate.py \
+    --dataset-root /path/to/mnist_mil_dataset \
+    --task mnist_fourbags \
+    --exp-code mnist_demo \
+    --k 5 \
+    --run-explainability
+```
+
+The helper writes per-fold `_explainability.csv` files under `eval_results/` and
+merges the aggregated metrics into the final summary CSV. Pass
+`--explanation-type` or `--explanation-class` to mirror the configuration used
+in the submission code.
 
 ## Training
 1. Modify the format of the input data.
